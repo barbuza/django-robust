@@ -394,3 +394,10 @@ class AdminTest(TransactionTestCase):
 
         retry_url = reverse('admin:robust_task_actions', args=(self.t1.pk, 'retry'))
         self.assertIn(retry_url, content)
+
+    def test_retry(self):
+        self.t1.mark_failed()
+        response = self.client.get(reverse('admin:robust_task_actions', args=(self.t1.pk, 'retry')))
+        self.assertEqual(response.status_code, 302)
+        self.t1.refresh_from_db()
+        self.assertEqual(self.t1.status, Task.RETRY)
