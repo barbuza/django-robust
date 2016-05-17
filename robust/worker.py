@@ -89,7 +89,7 @@ class WorkerThread(threading.Thread):
                 break
 
             except Exception:
-                logger.critical('%s exception ', self.name, exc_info=True)
+                logger.error('%s exception ', self.name, exc_info=True)
                 time.sleep(worker_failure_timeout)
 
         logger.debug('terminating %s', self.name)

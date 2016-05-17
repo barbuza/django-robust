@@ -151,10 +151,10 @@ LOGGING = {
             'level': 'DEBUG'
         },
         'robust.runners': {
-            'level': 'DEBUG'
+            'level': 'CRITICAL'
         },
         'robust.worker': {
-            'level': 'DEBUG'
+            'level': 'CRITICAL'
         }
     }
 }
