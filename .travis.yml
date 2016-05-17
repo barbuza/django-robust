@@ -18,4 +18,6 @@ before_install:
   sudo service postgresql restart ;
   createuser -d robust -U postgres ;
 
+install: pip install tox-travis
+
 script: tox
