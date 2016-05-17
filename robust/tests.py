@@ -4,7 +4,9 @@ import threading
 import time
 from datetime import timedelta
 
+from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.core.urlresolvers import reverse
 from django.db import transaction, close_old_connections
 from django.test import TransactionTestCase, override_settings, mock
 from django.utils import timezone
@@ -103,13 +105,13 @@ class TaskManagerTest(TransactionTestCase):
             Task.objects.create(name='foo')
 
         with transaction.atomic():
-            for idx, task in enumerate(Task.objects.next(limit=10)):
+            for idx, t in enumerate(Task.objects.next(limit=10)):
                 if idx % 2:
-                    task.mark_succeed()
-                    self.assertEqual(task.status, Task.SUCCEED)
+                    t.mark_succeed()
+                    self.assertEqual(t.status, Task.SUCCEED)
                 else:
-                    task.mark_failed()
-                    self.assertEqual(task.status, Task.FAILED)
+                    t.mark_failed()
+                    self.assertEqual(t.status, Task.FAILED)
 
         with transaction.atomic():
             self.assertSequenceEqual(Task.objects.next(limit=10), [])
@@ -148,33 +150,33 @@ TEST_TASK_PATH = '{}.{}'.format(test_task.__module__, test_task.__name__)
 
 class SimpleRunnerTest(TransactionTestCase):
     def test_exec(self):
-        task = Task.objects.create(name=TEST_TASK_PATH, payload={'foo': 'bar'})
-        runner = SimpleRunner(task)
+        t = Task.objects.create(name=TEST_TASK_PATH, payload={'foo': 'bar'})
+        runner = SimpleRunner(t)
         with mock.patch(TEST_TASK_PATH) as task_mock:
             runner.run()
             task_mock.assert_has_calls([mock.call(foo='bar')])
 
     def test_retry(self):
         eta = timezone.now()
-        task = Task.objects.create(name=TEST_TASK_PATH)
-        runner = SimpleRunner(task)
+        t = Task.objects.create(name=TEST_TASK_PATH)
+        runner = SimpleRunner(t)
         with mock.patch(TEST_TASK_PATH, side_effect=Retry(eta=eta)):
             runner.run()
-        self.assertEqual(task.status, task.RETRY)
-        self.assertEqual(task.eta, eta)
+        self.assertEqual(t.status, t.RETRY)
+        self.assertEqual(t.eta, eta)
 
     def test_failed(self):
-        task = Task.objects.create(name=TEST_TASK_PATH)
-        runner = SimpleRunner(task)
+        t = Task.objects.create(name=TEST_TASK_PATH)
+        runner = SimpleRunner(t)
         with mock.patch(TEST_TASK_PATH, side_effect=RuntimeError()):
             runner.run()
-        self.assertEqual(task.status, task.FAILED)
+        self.assertEqual(t.status, t.FAILED)
 
     def test_succeed(self):
-        task = Task.objects.create(name=TEST_TASK_PATH)
-        runner = SimpleRunner(task)
+        t = Task.objects.create(name=TEST_TASK_PATH)
+        runner = SimpleRunner(t)
         runner.run()
-        self.assertEqual(task.status, task.SUCCEED)
+        self.assertEqual(t.status, t.SUCCEED)
 
 
 def worker_test_fn(desired_status):
@@ -252,8 +254,9 @@ class TestRateLimit(TransactionTestCase):
         """
         try:
             with transaction.atomic():
-                task = Task.objects.next(limit=1)[0]
-                runner = SimpleRunner(task)
+                t = Task.objects.next(limit=1)[0]
+                runner = SimpleRunner(t)
+                # noinspection PyUnresolvedReferences
                 with mock.patch.object(runner, 'call', new=lambda *args, **kwargs: started.set()):
                     runner.run()
                     done.wait(timeout=5)
@@ -325,3 +328,66 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(payload={}).count(), 2)
         self.assertEqual(Task.objects.filter(payload={'spam': 'eggs'}).count(), 1)
         self.assertEqual(Task.objects.filter(tags__overlap=['bar', 'foo']).count(), 1)
+
+
+class AdminTest(TransactionTestCase):
+    def setUp(self):
+        username, password = 'username', 'password'
+        self.admin = User.objects.create_superuser(username, 'email@host.com', password)
+        self.client.login(username=username, password=password)
+        self.list_url = reverse('admin:robust_task_changelist')
+        self.t1 = Task.objects.create(name=TEST_TASK_PATH)
+        self.t2 = Task.objects.create(name=TEST_WORKER_TASK_PATH, status=Task.RETRY)
+
+    def task_url(self, obj):
+        """
+        :type obj: Task
+        :rtype str
+        """
+        return reverse('admin:robust_task_change', args=(obj.pk,))
+
+    def test_installed(self):
+        response = self.client.get('/admin/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.list_url, response.content.decode('utf-8'))
+
+    def test_list(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode('utf-8')
+        self.assertIn(self.task_url(self.t1), content)
+        self.assertIn(self.task_url(self.t2), content)
+
+    def test_filters(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode('utf-8')
+        self.assertIn('?status__exact={}'.format(Task.PENDING), content)
+        self.assertIn('?status__exact={}'.format(Task.FAILED), content)
+        self.assertIn('?status__exact={}'.format(Task.SUCCEED), content)
+        self.assertIn('?status__exact={}'.format(Task.RETRY), content)
+
+        response = self.client.get(self.list_url + '?status__exact={}'.format(Task.PENDING))
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode('utf-8')
+        self.assertIn(self.task_url(self.t1), content)
+        self.assertNotIn(self.task_url(self.t2), content)
+
+        response = self.client.get(self.list_url + '?status__exact={}'.format(Task.RETRY))
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode('utf-8')
+        self.assertNotIn(self.task_url(self.t1), content)
+        self.assertIn(self.task_url(self.t2), content)
+
+    def test_details_page(self):
+        response = self.client.get(self.task_url(self.t1))
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode('utf-8')
+        self.assertIn(self.t1.name, content)
+        self.assertIn(self.t1.get_status_display(), content)
+        self.assertEqual(content.count('input'), 1)

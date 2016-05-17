@@ -1,0 +1,28 @@
+{% extends 'admin/change_form.html' %}
+
+{% block object-tools-items %}{% endblock %}
+
+{% block content_title %}<h1>Task #{{ original.pk }} details</h1>{% endblock %}
+
+{% block after_field_sets %}
+  <table id="change-history">
+    <thead>
+      <tr>
+        <th scope="col">Date/time</th>
+        <th scope="col">Status</th>
+        <th scope="col">Eta</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in original.log_events %}
+        <tr>
+          <th scope="row">{{ event.created_at }}</th>
+          <td>{{ event.get_status_display }}</td>
+          <td>{{ event.eta }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+
+{% block submit_buttons_bottom %}{% endblock %}

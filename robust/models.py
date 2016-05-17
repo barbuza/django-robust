@@ -119,13 +119,17 @@ class Task(models.Model):
         :rtype str
         """
         items = []
-        for idx, event in enumerate(self.events.all()):
+        for idx, event in enumerate(self.log_events):
             if idx == 0:
                 action = 'created'
             else:
                 action = event.get_status_display()
             items.append('{} {}'.format(event.created_at, action))
         return '\n'.join(items)
+
+    @property
+    def log_events(self):
+        return self.events.order_by('pk')
 
     def __repr__(self):
         chunks = [self.name, '#{}'.format(self.pk), self.get_status_display()]
