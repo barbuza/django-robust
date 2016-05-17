@@ -1,0 +1,10 @@
+/venv
+/venv27
+/.idea
+__pycache__
+/dist
+/.tox
+/django_robust.egg-info
+*.pyc
+/MANIFEST
+/.coverage
