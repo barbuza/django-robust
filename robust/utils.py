@@ -33,6 +33,7 @@ class TaskWrapper(object):
 def task(bind=False, tags=None):
     def decorator(fn):
         retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
+        retry_cls.__module__ = fn.__module__
 
         task_cls = type(fn.__name__, (TaskWrapper,), {
             'fn': staticmethod(fn),
