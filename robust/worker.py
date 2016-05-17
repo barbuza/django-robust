@@ -5,7 +5,7 @@ import threading
 import time
 
 from django.conf import settings
-from django.db import transaction, connection
+from django.db import transaction, connection, close_old_connections
 
 from .beat import BeatThread, get_scheduler
 from .models import Task
@@ -58,43 +58,45 @@ class WorkerThread(threading.Thread):
 
     # noinspection PyBroadException
     def run(self):
-        notify_timeout = getattr(settings, 'ROBUST_NOTIFY_TIMEOUT', 10)
-        worker_failure_timeout = getattr(settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
+        try:
+            notify_timeout = getattr(settings, 'ROBUST_NOTIFY_TIMEOUT', 10)
+            worker_failure_timeout = getattr(settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
 
-        while True:
-            try:
-                if self.should_terminate():
-                    raise Stop()
+            while True:
+                try:
+                    if self.should_terminate():
+                        raise Stop()
 
-                with transaction.atomic():
-                    tasks = Task.objects.next(limit=self.bulk)
-                    logger.debug('%s got tasks %r', self.name, tasks)
-                    if self.worker_limit:
-                        self.worker_limit.dec(amount=len(tasks))
+                    with transaction.atomic():
+                        tasks = Task.objects.next(limit=self.bulk)
+                        logger.debug('%s got tasks %r', self.name, tasks)
+                        if self.worker_limit:
+                            self.worker_limit.dec(amount=len(tasks))
 
-                    for task in tasks:
-                        runner = self.runner_cls(task)
-                        runner.run()
+                        for task in tasks:
+                            runner = self.runner_cls(task)
+                            runner.run()
 
-                if self.should_terminate():
-                    raise Stop()
+                    if self.should_terminate():
+                        raise Stop()
 
-                if not tasks:
-                    with connection.cursor() as cursor:
-                        cursor.execute('LISTEN robust')
+                    if not tasks:
+                        with connection.cursor() as cursor:
+                            cursor.execute('LISTEN robust')
 
-                    logger.debug('listen for postgres events')
-                    select.select([connection.connection], [], [], notify_timeout)
+                        logger.debug('listen for postgres events')
+                        select.select([connection.connection], [], [], notify_timeout)
 
-            except Stop:
-                break
+                except Stop:
+                    break
 
-            except Exception:
-                logger.error('%s exception ', self.name, exc_info=True)
-                time.sleep(worker_failure_timeout)
+                except Exception:
+                    logger.error('%s exception ', self.name, exc_info=True)
+                    time.sleep(worker_failure_timeout)
 
-        logger.debug('terminating %s', self.name)
-        connection.close()
+            logger.debug('terminating %s', self.name)
+        finally:
+            close_old_connections()
 
 
 def run_worker(concurrency, bulk, limit, runner_cls, beat):

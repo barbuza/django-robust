@@ -3,6 +3,7 @@ import threading
 import time
 
 from django.conf import settings
+from django.db import close_old_connections
 from django.utils.module_loading import import_string
 from schedule import Scheduler
 
@@ -45,9 +46,16 @@ class BeatThread(threading.Thread):
         self.scheduler = scheduler
 
     def run(self):
-        while not self.terminate:
-            self.scheduler.run_pending()
-            time.sleep(1)
+        try:
+            while True:
+                self.scheduler.run_pending()
+                time.sleep(1)
+                if self.terminate:
+                    break
+        finally:
+            # noinspection PyProtectedMember
+            if not isinstance(threading.current_thread(), threading._MainThread):
+                close_old_connections()
 
 
 def run_beat():
@@ -59,5 +67,4 @@ def run_beat():
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    thread.start()
-    thread.join()
+    thread.run()

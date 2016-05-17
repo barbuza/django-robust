@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import signal
 import threading
@@ -220,15 +221,15 @@ class WorkerTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(status=Task.SUCCEED).count(), 50)
         self.assertEqual(Task.objects.filter(status=Task.FAILED).count(), 50)
 
-    def _interrupt(self):
+    def _interrupt(self, pid):
         time.sleep(1)
-        os.kill(os.getpid(), signal.SIGINT)
+        os.kill(pid, signal.SIGINT)
 
     def test_terminate(self):
-        thread = threading.Thread(target=self._interrupt)
-        thread.start()
+        proc = multiprocessing.Process(target=self._interrupt, args=(os.getpid(),))
+        proc.start()
         call_command('robust_worker')
-        thread.join()
+        proc.join()
 
     def test_recovery(self):
         Task.objects.create(name=TEST_TASK_PATH)
@@ -425,13 +426,6 @@ def every_2_seconds():
     (timedelta(seconds=2), import_path(every_2_seconds))
 ])
 class TestBeat(TransactionTestCase):
-    def _sigint(self, duration):
-        """
-        :rtype duration: float
-        """
-        time.sleep(duration)
-        os.kill(os.getpid(), signal.SIGINT)
-
     def test_invalid(self):
         with override_settings(ROBUST_SCHEDULE=None):
             with self.assertRaises(RuntimeError):
@@ -449,11 +443,15 @@ class TestBeat(TransactionTestCase):
             with self.assertRaises(RuntimeError):
                 call_command('robust_beat')
 
+    def _interrupt(self, pid):
+        time.sleep(4.5)
+        os.kill(pid, signal.SIGINT)
+
     def test_standalone(self):
-        thread = threading.Thread(target=self._sigint, args=(4.5,))
-        thread.start()
+        proc = multiprocessing.Process(target=self._interrupt, args=(os.getpid(),))
+        proc.start()
         call_command('robust_beat')
-        thread.join()
+        proc.join()
 
         self.assertEqual(Task.objects.filter(name=import_path(every_second)).count(), 4)
         self.assertEqual(Task.objects.filter(name=import_path(every_2_seconds)).count(), 2)
