@@ -9,7 +9,7 @@ setup(
     url='https://github.com/barbuza/django-robust',
     packages=['robust', 'robust.management.commands', 'robust.migrations'],
     install_requires=[
-        'django > 1.9',
-        'psycopg2 > 2'
+        'django >= 1.9',
+        'psycopg2 >= 2.5'
     ]
 )
