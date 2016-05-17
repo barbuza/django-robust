@@ -1,5 +1,5 @@
-django-robust |Build Status| |Coverage Status|
-==============================================
+django-robust |Build Status| |Coverage Status| |PyPI Version|
+=============================================================
 
 install
 -------
@@ -90,3 +90,5 @@ settings
    :target: https://travis-ci.org/barbuza/django-robust
 .. |Coverage Status| image:: https://coveralls.io/repos/github/barbuza/django-robust/badge.svg?branch=master
    :target: https://coveralls.io/github/barbuza/django-robust?branch=master
+.. |PyPI Version| image:: https://badge.fury.io/py/django-robust.svg
+   :target: https://badge.fury.io/py/django-robust
