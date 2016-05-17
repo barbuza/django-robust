@@ -17,6 +17,13 @@ from .runners import SimpleRunner
 from .utils import task, TaskWrapper
 
 
+def import_path(fn):
+    """
+    :type fn: Any
+    """
+    return '{}.{}'.format(fn.__module__, fn.__name__)
+
+
 class LockTask(threading.Thread):
     def __init__(self):
         super(LockTask, self).__init__()
@@ -145,7 +152,7 @@ def test_task():
     pass
 
 
-TEST_TASK_PATH = '{}.{}'.format(test_task.__module__, test_task.__name__)
+TEST_TASK_PATH = import_path(test_task)
 
 
 class SimpleRunnerTest(TransactionTestCase):
@@ -189,7 +196,7 @@ def worker_test_fn(desired_status):
         raise RuntimeError()
 
 
-TEST_WORKER_TASK_PATH = '{}.{}'.format(worker_test_fn.__module__, worker_test_fn.__name__)
+TEST_WORKER_TASK_PATH = import_path(worker_test_fn)
 
 
 class WorkerTest(TransactionTestCase):
@@ -401,3 +408,58 @@ class AdminTest(TransactionTestCase):
         self.assertEqual(response.status_code, 302)
         self.t1.refresh_from_db()
         self.assertEqual(self.t1.status, Task.RETRY)
+
+
+@task()
+def every_second():
+    pass
+
+
+@task()
+def every_2_seconds():
+    pass
+
+
+@override_settings(ROBUST_SCHEDULE=[
+    (timedelta(seconds=1), import_path(every_second)),
+    (timedelta(seconds=2), import_path(every_2_seconds))
+])
+class TestBeat(TransactionTestCase):
+    def _sigint(self, duration):
+        """
+        :rtype duration: float
+        """
+        time.sleep(duration)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    def test_invalid(self):
+        with override_settings(ROBUST_SCHEDULE=None):
+            with self.assertRaises(RuntimeError):
+                call_command('robust_beat')
+
+        with override_settings(ROBUST_SCHEDULE=[
+            (timedelta(seconds=1), 'foobar_spameggs')
+        ]):
+            with self.assertRaises(ImportError):
+                call_command('robust_beat')
+
+        with override_settings(ROBUST_SCHEDULE=[
+            (timedelta(seconds=1), 'os.getpid')
+        ]):
+            with self.assertRaises(RuntimeError):
+                call_command('robust_beat')
+
+    def test_standalone(self):
+        thread = threading.Thread(target=self._sigint, args=(4.5,))
+        thread.start()
+        call_command('robust_beat')
+        thread.join()
+
+        self.assertEqual(Task.objects.filter(name=import_path(every_second)).count(), 4)
+        self.assertEqual(Task.objects.filter(name=import_path(every_2_seconds)).count(), 2)
+
+    def test_embedded(self):
+        call_command('robust_worker', limit=6, beat=True)
+
+        self.assertEqual(Task.objects.filter(name=import_path(every_second)).count(), 4)
+        self.assertEqual(Task.objects.filter(name=import_path(every_2_seconds)).count(), 2)

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='django-robust',
-    version='0.1.2',
+    version='0.1.3',
     description='robust background queue for django',
     author='Victor Kotseruba',
     author_email='barbuzaster@gmail.com',
@@ -11,6 +11,7 @@ setup(
     install_requires=[
         'django >= 1.9',
         'psycopg2 >= 2.5',
-        'django-object-actions'
+        'django-object-actions',
+        'schedule'
     ]
 )

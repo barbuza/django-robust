@@ -30,6 +30,10 @@ define tasks
     def heavy_stuff(foo):
         pass
 
+    @task(tags=['service1'])
+    def talk_to_external_service():
+        pass
+
 schedule tasks
 --------------
 
@@ -46,15 +50,35 @@ execute tasks
 
     $ ./manage.py robust_worker
 
+run scheduler
+-------------
+
+standalone
+
+.. code:: shell
+
+    $ ./manage.py robust_beat
+
+embedded
+
+.. code:: shell
+
+    $ ./manage.py robust_worker --beat
+
 settings
 --------
 
 .. code:: python
 
     ROBUST_RATE_LIMIT = {
-        'foo': (1, timedelta(seconds=10)),  # 1/10s,
-        'bar': (20, timedelta(minutes=1)),  # 20/m
+        'service1': (1, timedelta(seconds=10)),  # 1/10s,
+        'bar':      (20, timedelta(minutes=1)),  # 20/m
     }
+
+    ROBUST_SCHEDULE = [
+        (timedelta(seconds=1), 'foo.tasks.every_second'),
+        (timedelta(minutes=5), 'foo.tasks.every_5_minutes'),
+    ]
 
     ROBUST_LOG_EVENTS = True  # log all task state changes
 

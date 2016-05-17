@@ -7,6 +7,7 @@ import time
 from django.conf import settings
 from django.db import transaction, connection
 
+from .beat import BeatThread, get_scheduler
 from .models import Task
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class WorkerThread(threading.Thread):
         connection.close()
 
 
-def run_worker(concurrency, bulk, limit, runner_cls):
+def run_worker(concurrency, bulk, limit, runner_cls, beat):
     """
     :type concurrency: int
     :type bulk: int
@@ -109,6 +110,13 @@ def run_worker(concurrency, bulk, limit, runner_cls):
         worker_limit = WorkerLimit(limit)
 
     threads = []
+
+    if beat:
+        scheduler = get_scheduler()
+        thread = BeatThread(scheduler)
+        threads.append(thread)
+        thread.start()
+
     for number in range(concurrency):
         thread = WorkerThread(number, runner_cls, bulk, worker_limit)
         threads.append(thread)
