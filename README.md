@@ -3,7 +3,7 @@
 ## install
 
 ```shell
-$ pip install robust
+$ pip install django-robust
 ```
 
 ```python
