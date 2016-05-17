@@ -5,13 +5,14 @@ import time
 from datetime import timedelta
 
 from django.core.management import call_command
-from django.db import transaction, connections, close_old_connections
+from django.db import transaction, close_old_connections
 from django.test import TransactionTestCase, override_settings, mock
 from django.utils import timezone
 
 from .exceptions import TaskTransactionError, Retry
 from .models import Task, RateLimitRun
 from .runners import SimpleRunner
+from .utils import task, TaskWrapper
 
 
 class LockTask(threading.Thread):
@@ -291,3 +292,36 @@ class TestRateLimit(TransactionTestCase):
                 'bar': (10, timedelta(minutes=1))
             }):
                 self.assertSequenceEqual(Task.objects.next(limit=10), [t1])
+
+
+@task()
+def foo_task(spam=None):
+    return spam or 'bar'
+
+
+@task(bind=True, tags=['foo', 'bar'])
+def bound_task(self, retry=False):
+    if retry:
+        self.retry()
+    return self
+
+
+class TaskDecoratorTest(TransactionTestCase):
+    def test_decorator(self):
+        self.assertEqual(foo_task(), 'bar')
+        self.assertEqual(foo_task(spam='eggs'), 'eggs')
+
+        foo_task.delay()
+        foo_task.delay(spam='eggs')
+        bound_task.delay()
+
+        with self.assertRaises(bound_task.Retry):
+            bound_task(retry=True)
+
+        self.assertTrue(issubclass(bound_task(), TaskWrapper))
+        self.assertSequenceEqual(bound_task.tags, ['foo', 'bar'])
+
+        self.assertEqual(Task.objects.count(), 3)
+        self.assertEqual(Task.objects.filter(payload={}).count(), 2)
+        self.assertEqual(Task.objects.filter(payload={'spam': 'eggs'}).count(), 1)
+        self.assertEqual(Task.objects.filter(tags__overlap=['bar', 'foo']).count(), 1)
