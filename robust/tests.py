@@ -391,3 +391,6 @@ class AdminTest(TransactionTestCase):
         self.assertIn(self.t1.name, content)
         self.assertIn(self.t1.get_status_display(), content)
         self.assertEqual(content.count('input'), 1)
+
+        retry_url = reverse('admin:robust_task_actions', args=(self.t1.pk, 'retry'))
+        self.assertIn(retry_url, content)
