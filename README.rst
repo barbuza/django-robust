@@ -46,6 +46,22 @@ execute tasks
 
     $ ./manage.py robust_worker
 
+settings
+--------
+
+.. code:: python
+
+    ROBUST_RATE_LIMIT = {
+        'foo': (1, timedelta(seconds=10)),  # 1/10s,
+        'bar': (20, timedelta(minutes=1)),  # 20/m
+    }
+
+    ROBUST_LOG_EVENTS = True  # log all task state changes
+
+    ROBUST_WORKER_FAILURE_TIMEOUT = 5  # wait 5 seconds when worker faces unexpected errors
+
+    ROBUST_NOTIFY_TIMEOUT = 10  # listen to postgres notify for 10 seconds, then poll database
+
 .. |Build Status| image:: https://travis-ci.org/barbuza/django-robust.svg?branch=master
    :target: https://travis-ci.org/barbuza/django-robust
 .. |Coverage Status| image:: https://coveralls.io/repos/github/barbuza/django-robust/badge.svg?branch=master
