@@ -1,4 +1,4 @@
 from .exceptions import Retry
 from .utils import task
 
-__all__ = ('task', 'Retry')
+__all__ = ('task', 'Retry',)

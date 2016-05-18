@@ -10,13 +10,15 @@ install
 
 .. code:: python
 
-    INSTALLED_APPS = ('robust', )
+    INSTALLED_APPS = [
+        'robust.apps.RobustConfig',
+    ]
     DB = {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
     }
     DATABASES = {
         'default': DB,
-        'robust_ratelimit': DB # <- same db
+        'robust_ratelimit': DB, # <- same db
     }
 
 define tasks
