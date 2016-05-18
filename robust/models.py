@@ -1,28 +1,78 @@
+import copy
+import threading
+
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.db import connection, models
 from django.dispatch import receiver
+from django.test.utils import setting_changed
 from django.utils import timezone
 
 from .exceptions import TaskTransactionError
 from .signals import task_started
 
 
-def count_when(q=None, **kwargs):
-    """
-    :type q: django.db.models.Q
-    :rtype django.db.models.Sum
-    """
-    if q is None:
-        q = models.Q(**kwargs)
-    return models.Sum(models.Case(
-        models.When(q, then=models.Value(1)),
-        default=models.Value(0),
-        output_field=models.BigIntegerField()
-    ))
-
-
 class TaskManager(models.Manager):
+    _query_cache_lock = threading.Lock()
+    _query_cache = None
+    _query_limits = None
+
+    @classmethod
+    def reset_query_cache(cls):
+        with cls._query_cache_lock:
+            cls._query_cache = None
+            cls._params_cache = None
+
+    @classmethod
+    def _compile_query(cls):
+        rate_limit = getattr(settings, 'ROBUST_RATE_LIMIT', None)
+        if rate_limit:
+            array_items = ['''
+                (CASE WHEN
+                  SUM(
+                    CASE WHEN created_at >= %s AND tag = %s THEN 1 ELSE 0 END
+                  ) >= %s THEN %s
+                  ELSE NULL END)
+            '''] * len(rate_limit)
+
+            ratelimit_query = '''
+            SELECT array_remove(ARRAY[{}], NULL)
+            FROM {} WHERE created_at >= %s
+            '''.format(','.join(array_items), RateLimitRun._meta.db_table)
+
+            query = '''
+            SELECT * FROM {}
+            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s) AND NOT tags && ({})
+            ORDER BY {}
+            LIMIT %s
+            FOR UPDATE SKIP LOCKED
+            '''.format(Task._meta.db_table, ratelimit_query, Task._meta.pk.name)
+
+        else:
+            query = '''
+            SELECT * FROM {}
+            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s)
+            ORDER BY {}
+            LIMIT %s
+            FOR UPDATE SKIP LOCKED
+            '''.format(Task._meta.db_table, Task._meta.pk.name)
+
+        cls._query_cache = query
+        cls._query_limits = copy.deepcopy(rate_limit)
+
+    @classmethod
+    def _query_params(cls, limit):
+        runtime = timezone.now()
+        params = [Task.PENDING, Task.RETRY, runtime]
+        rate_limit = cls._query_limits
+        if rate_limit:
+            for tag, (count, duration) in rate_limit.items():
+                params.extend((runtime - duration, tag, count, tag))
+            window = max([duration for count, duration in rate_limit.values()])
+            params.append(runtime - window)
+        params.append(limit)
+        return params
+
     def next(self, limit=1):
         """
         lock and return next {limit} unlocked tasks
@@ -30,35 +80,17 @@ class TaskManager(models.Manager):
         :type limit: int
         :rtype: list[Task]
         """
+        with self._query_cache_lock:
+            if not self._query_cache:
+                self._compile_query()
+
+            query = self._query_cache
+            params = self._query_params(limit)
+
         if not connection.in_atomic_block:
             raise TaskTransactionError('Task.objects.next() must be used inside transaction')
 
-        avoid_tags = []
-        limits = getattr(settings, 'ROBUST_RATE_LIMIT', {})
-        runtime = timezone.now()
-        if limits:
-            window = max([duration for count, duration in limits.values()])
-            aggs = {}
-            for tag, (_, duration) in limits.items():
-                aggs[tag] = count_when(tag=tag, created_at__gte=runtime - duration)
-            data = RateLimitRun.objects \
-                .filter(created_at__gte=runtime - window) \
-                .aggregate(**aggs)
-            for tag, (count, _) in limits.items():
-                if data[tag] >= count:
-                    avoid_tags.append(tag)
-
-        query = '''
-        SELECT * FROM {}
-        WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s) AND NOT tags && %s
-        ORDER BY {}
-        LIMIT %s
-        FOR UPDATE SKIP LOCKED
-        '''.format(Task._meta.db_table, Task._meta.pk.name)
-
-        return list(self.raw(query, params=[
-            Task.PENDING, Task.RETRY, timezone.now(), avoid_tags, limit
-        ]))
+        return list(self.raw(query, params=params))
 
 
 class Task(models.Model):
@@ -200,3 +232,12 @@ def update_ratelimit(tags, **kwargs):
         RateLimitRun.objects.using('robust_ratelimit').bulk_create(
             [RateLimitRun(tag=tag, created_at=runtime) for tag in tags]
         )
+
+
+@receiver(signal=setting_changed)
+def reset_query_cache(setting, **kwargs):
+    """
+    :type setting: str
+    """
+    if setting == 'ROBUST_RATE_LIMIT':
+        TaskManager.reset_query_cache()

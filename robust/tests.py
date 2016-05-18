@@ -241,7 +241,11 @@ class WorkerTest(TransactionTestCase):
                 sleep_mock.assert_has_calls([mock.call(timeout)])
 
 
-class TestRateLimit(TransactionTestCase):
+@override_settings(ROBUST_RATE_LIMIT={
+    'foo': (1, timedelta(minutes=1)),
+    'bar': (10, timedelta(minutes=1))
+})
+class RateLimitTest(TransactionTestCase):
     def setUp(self):
         Task.objects.all().delete()
         RateLimitRun.objects.all().delete()
@@ -290,19 +294,28 @@ class TestRateLimit(TransactionTestCase):
     def test_limit(self):
         with transaction.atomic():
             runtime = timezone.now()
+            Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
             RateLimitRun.objects.bulk_create([
                 RateLimitRun(tag='foo', created_at=runtime),
+                RateLimitRun(tag='bar', created_at=runtime),
                 RateLimitRun(tag='bar', created_at=runtime)
             ])
-            Task.objects.create(name=TEST_TASK_PATH, tags=['foo'])
-            Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
             t1 = Task.objects.create(name=TEST_TASK_PATH, tags=['bar', 'spam'])
+            t2 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo'])
 
+        with transaction.atomic():
             with override_settings(ROBUST_RATE_LIMIT={
                 'foo': (1, timedelta(minutes=1)),
                 'bar': (10, timedelta(minutes=1))
             }):
                 self.assertSequenceEqual(Task.objects.next(limit=10), [t1])
+
+        with transaction.atomic():
+            with override_settings(ROBUST_RATE_LIMIT={
+                'foo': (3, timedelta(minutes=1)),
+                'bar': (2, timedelta(minutes=1))
+            }):
+                self.assertSequenceEqual(Task.objects.next(limit=10), [t2])
 
 
 @task()
