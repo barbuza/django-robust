@@ -4,6 +4,7 @@ from .exceptions import Retry as BaseRetry
 class TaskWrapper(object):
     bind = False
     fn = None
+    retries = None
     tags = []
     Retry = BaseRetry
 
@@ -19,7 +20,7 @@ class TaskWrapper(object):
         """
         from .models import Task
         return Task.objects.create(name='{}.{}'.format(cls.__module__, cls.__name__),
-                                   payload=kwargs, tags=cls.tags)
+                                   payload=kwargs, tags=cls.tags, retries=cls.retries)
 
     @classmethod
     def retry(cls, eta=None, delay=None):
@@ -30,13 +31,14 @@ class TaskWrapper(object):
         raise cls.Retry(eta=eta, delay=delay)
 
 
-def task(bind=False, tags=None):
+def task(bind=False, tags=None, retries=None):
     def decorator(fn):
         retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
         retry_cls.__module__ = fn.__module__
 
         task_cls = type(fn.__name__, (TaskWrapper,), {
             'fn': staticmethod(fn),
+            'retries': retries,
             'tags': tags,
             'bind': bind,
             'Retry': retry_cls

@@ -36,6 +36,10 @@ define tasks
     def talk_to_external_service():
         pass
 
+    @task(bind=True, retries=3)
+    def retry_me(self):
+        self.retry()
+
 schedule tasks
 --------------
 

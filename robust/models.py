@@ -104,6 +104,7 @@ class Task(models.Model):
     ]
 
     status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, db_index=True, default=PENDING)
+    retries = models.IntegerField(null=True)
     name = models.TextField()
     tags = ArrayField(models.TextField())
     payload = JSONField()

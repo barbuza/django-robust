@@ -38,9 +38,18 @@ class SimpleRunner(Runner):
             self.call(fn, kwargs)
 
         except Retry as retry:
-            self.task.mark_retry(eta=retry.eta, delay=retry.delay)
-            logger.info('retry task %s(**%r) eta=%s delay=%s',
-                        self.task.name, self.task.payload, retry.eta, retry.delay)
+            captured = False
+            if self.task.retries is not None:
+                self.task.retries -= 1
+                if self.task.retries < 0:
+                    self.task.mark_failed()
+                    logger.exception('task %s(**%r) failed ', self.task.name, self.task.payload)
+                    captured = True
+
+            if not captured:
+                self.task.mark_retry(eta=retry.eta, delay=retry.delay)
+                logger.info('retry task %s(**%r) eta=%s delay=%s',
+                            self.task.name, self.task.payload, retry.eta, retry.delay)
 
         except Exception:
             self.task.mark_failed()

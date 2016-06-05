@@ -166,12 +166,19 @@ class SimpleRunnerTest(TransactionTestCase):
 
     def test_retry(self):
         eta = timezone.now()
-        t = Task.objects.create(name=TEST_TASK_PATH)
+        t = Task.objects.create(name=TEST_TASK_PATH, retries=2)
         runner = SimpleRunner(t)
         with mock.patch(TEST_TASK_PATH, side_effect=Retry(eta=eta)):
             runner.run()
-        self.assertEqual(t.status, t.RETRY)
-        self.assertEqual(t.eta, eta)
+            self.assertEqual(t.status, t.RETRY)
+            self.assertEqual(t.eta, eta)
+            self.assertEqual(t.retries, 1)
+            runner.run()
+            self.assertEqual(t.status, t.RETRY)
+            self.assertEqual(t.eta, eta)
+            self.assertEqual(t.retries, 0)
+            runner.run()
+            self.assertEqual(t.status, t.FAILED)
 
     def test_failed(self):
         t = Task.objects.create(name=TEST_TASK_PATH)
@@ -330,6 +337,11 @@ def bound_task(self, retry=False):
     return self
 
 
+@task(bind=True, retries=1)
+def retry_task(self):
+    self.retry()
+
+
 class TaskDecoratorTest(TransactionTestCase):
     def test_decorator(self):
         self.assertEqual(foo_task(), 'bar')
@@ -338,6 +350,7 @@ class TaskDecoratorTest(TransactionTestCase):
         foo_task.delay()
         foo_task.delay(spam='eggs')
         bound_task.delay()
+        retry_task.delay()
 
         with self.assertRaises(bound_task.Retry):
             bound_task(retry=True)
@@ -345,10 +358,12 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertTrue(issubclass(bound_task(), TaskWrapper))
         self.assertSequenceEqual(bound_task.tags, ['foo', 'bar'])
 
-        self.assertEqual(Task.objects.count(), 3)
-        self.assertEqual(Task.objects.filter(payload={}).count(), 2)
+        self.assertEqual(Task.objects.count(), 4)
+        self.assertEqual(Task.objects.filter(payload={}).count(), 3)
         self.assertEqual(Task.objects.filter(payload={'spam': 'eggs'}).count(), 1)
         self.assertEqual(Task.objects.filter(tags__overlap=['bar', 'foo']).count(), 1)
+        self.assertEqual(Task.objects.filter(retries=None).count(), 3)
+        self.assertEqual(Task.objects.filter(retries=1).count(), 1)
 
 
 class AdminTest(TransactionTestCase):
