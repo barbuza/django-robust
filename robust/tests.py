@@ -366,6 +366,21 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(retries=1).count(), 1)
 
 
+class EagerModeTest(TransactionTestCase):
+    def test_eager_mode(self):
+        with override_settings(ROBUST_ALWAYS_EAGER=True):
+            self.assertEqual(foo_task.delay(), 'bar')
+            self.assertEqual(foo_task.delay(spam='eggs'), 'eggs')
+
+            with self.assertRaises(bound_task.Retry):
+                bound_task.delay(retry=True)
+
+            with self.assertRaises(retry_task.Retry):
+                retry_task.delay()
+
+            self.assertFalse(Task.objects.count())
+
+
 class AdminTest(TransactionTestCase):
     def setUp(self):
         username, password = 'username', 'password'

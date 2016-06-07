@@ -1,3 +1,4 @@
+from django.conf import settings
 from .exceptions import Retry as BaseRetry
 
 
@@ -18,6 +19,11 @@ class TaskWrapper(object):
         """
         :rtype robust.models.Task
         """
+        if getattr(settings, 'ROBUST_ALWAYS_EAGER', False):
+            if cls.bind:
+                return cls.fn(cls, **kwargs)
+            return cls.fn(**kwargs)
+
         from .models import Task
         return Task.objects.create(name='{}.{}'.format(cls.__module__, cls.__name__),
                                    payload=kwargs, tags=cls.tags, retries=cls.retries)
