@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 import time
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -379,6 +379,14 @@ class EagerModeTest(TransactionTestCase):
                 retry_task.delay()
 
             self.assertFalse(Task.objects.count())
+
+    def test_kwargs_non_json_serializable(self):
+        with override_settings(ROBUST_ALWAYS_EAGER=True):
+            with self.assertRaises(TypeError):
+                foo_task.delay(spam=datetime.now())
+
+        with self.assertRaises(TypeError):
+            foo_task.delay(span=datetime.now())
 
 
 class AdminTest(TransactionTestCase):
