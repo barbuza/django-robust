@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 import time
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -364,6 +364,29 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(tags__overlap=['bar', 'foo']).count(), 1)
         self.assertEqual(Task.objects.filter(retries=None).count(), 3)
         self.assertEqual(Task.objects.filter(retries=1).count(), 1)
+
+
+class EagerModeTest(TransactionTestCase):
+    def test_eager_mode(self):
+        with override_settings(ROBUST_ALWAYS_EAGER=True):
+            self.assertEqual(foo_task.delay(), 'bar')
+            self.assertEqual(foo_task.delay(spam='eggs'), 'eggs')
+
+            with self.assertRaises(bound_task.Retry):
+                bound_task.delay(retry=True)
+
+            with self.assertRaises(retry_task.Retry):
+                retry_task.delay()
+
+            self.assertFalse(Task.objects.count())
+
+    def test_kwargs_non_json_serializable(self):
+        with override_settings(ROBUST_ALWAYS_EAGER=True):
+            with self.assertRaises(TypeError):
+                foo_task.delay(spam=datetime.now())
+
+        with self.assertRaises(TypeError):
+            foo_task.delay(span=datetime.now())
 
 
 class AdminTest(TransactionTestCase):
