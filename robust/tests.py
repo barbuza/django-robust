@@ -15,7 +15,7 @@ from django.utils import timezone
 from .exceptions import TaskTransactionError, Retry
 from .models import Task, RateLimitRun
 from .runners import SimpleRunner
-from .utils import task, TaskWrapper, PayloadProcessor
+from .utils import task, TaskWrapper, PayloadProcessor, cleanup
 
 
 def import_path(fn):
@@ -387,6 +387,42 @@ class EagerModeTest(TransactionTestCase):
 
         with self.assertRaises(TypeError):
             foo_task.delay(span=datetime.now())
+
+@override_settings(
+    ROBUST_ALWAYS_EAGER=True,
+    ROBUST_SUCCEED_TASK_EXPIRE=timedelta(hours=1),
+    ROBUST_FAILED_TASK_EXPIRE=timedelta(weeks=1),
+)
+class CleanupTest(TransactionTestCase):
+    def setUp(self):
+        self.now = datetime.now()
+        self.succ_task = Task.objects.create(name='test_succeed', status=Task.SUCCEED)
+        self.succ_task_exp = Task.objects.create(name='test_succeed_exp',status=Task.SUCCEED)
+        Task.objects.filter(pk=self.succ_task_exp.pk).update(updated_at=self.now - timedelta(hours=1, seconds=30))
+
+        self.fail_task = Task.objects.create(name='test_failed', status=Task.FAILED)
+        self.fail_task_exp = Task.objects.create(name='test_failed_exp', status=Task.FAILED)
+        Task.objects.filter(pk=self.fail_task_exp.pk).update(updated_at=self.now - timedelta(weeks=1, seconds=30))
+
+        self.pend_task = Task.objects.create(name='test_pending', status=Task.PENDING)
+        self.pend_task2 = Task.objects.create(name='test_pending', status=Task.PENDING)
+        Task.objects.filter(pk=self.pend_task2.pk).update(updated_at=self.now - timedelta(weeks=2))
+
+        self.retry_task = Task.objects.create(name='test_retry', status=Task.RETRY)
+        self.retry_task2 = Task.objects.create(name='test_retry', status=Task.RETRY)
+        Task.objects.filter(pk=self.retry_task2.pk).update(updated_at=self.now - timedelta(weeks=2))
+
+    def test_cleanup(self):
+        self.assertEqual(Task.objects.count(), 8)
+
+        cleanup()
+        self.assertEqual(Task.objects.count(), 6)
+        self.assertEqual(Task.objects.filter(name='test_succeed').count(), 1)
+        self.assertEqual(Task.objects.filter(name='test_succeed_exp').count(), 0)
+        self.assertEqual(Task.objects.filter(name='test_failed').count(), 1)
+        self.assertEqual(Task.objects.filter(name='test_failed_exp').count(), 0)
+        self.assertEqual(Task.objects.filter(name='test_retry').count(), 2)
+        self.assertEqual(Task.objects.filter(name='test_pending').count(), 2)
 
 
 class AdminTest(TransactionTestCase):
