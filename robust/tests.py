@@ -15,7 +15,7 @@ from django.utils import timezone
 from .exceptions import TaskTransactionError, Retry
 from .models import Task, RateLimitRun
 from .runners import SimpleRunner
-from .utils import task, TaskWrapper
+from .utils import task, TaskWrapper, PayloadProcessor
 
 
 def import_path(fn):
@@ -512,3 +512,38 @@ class TestBeat(TransactionTestCase):
 
         self.assertEqual(Task.objects.filter(name=import_path(every_second)).count(), 4)
         self.assertEqual(Task.objects.filter(name=import_path(every_2_seconds)).count(), 2)
+
+
+class FakeProcessor(PayloadProcessor):
+    @staticmethod
+    def wrap_payload(payload):
+        if 'fail' in payload:
+            raise RuntimeError('fail')
+        return dict(payload, fake='processor')
+
+    @staticmethod
+    def unwrap_payload(payload):
+        payload = dict(payload)
+        del payload['fake']
+        return payload
+
+
+@override_settings(ROBUST_PAYLOAD_PROCESSOR='robust.tests.FakeProcessor')
+class TestPayloadProcessor(TransactionTestCase):
+    def test_wrap(self):
+        foo_task.delay()
+        self.assertEqual(Task.objects.filter(payload={'fake': 'processor'}).count(), 1)
+
+    def test_unwrap(self):
+        instance = foo_task.delay()
+        with mock.patch(import_path(foo_task)) as task_mock:
+            SimpleRunner(instance).run()
+            self.assertListEqual(task_mock.mock_calls, [mock.call()])
+
+    def test_fail(self):
+        with self.assertRaises(RuntimeError, msg='fail'):
+            foo_task.delay(fail=True)
+
+        with override_settings(ROBUST_ALWAYS_EAGER=True):
+            with self.assertRaises(RuntimeError, msg='fail'):
+                foo_task.delay(fail=True)

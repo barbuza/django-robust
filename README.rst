@@ -94,6 +94,8 @@ settings
 
     ROBUST_ALWAYS_EAGER = False  # if this is True, tasks will be executed locally instead of being sent to the queue
 
+    ROBUST_PAYLOAD_PROCESSOR = 'robust.utils.PayloadProcessor'
+
 .. |Build Status| image:: https://travis-ci.org/barbuza/django-robust.svg?branch=master
    :target: https://travis-ci.org/barbuza/django-robust
 .. |Coverage Status| image:: https://coveralls.io/repos/github/barbuza/django-robust/badge.svg?branch=master

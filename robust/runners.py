@@ -2,6 +2,7 @@ import logging
 
 from django.utils.module_loading import import_string
 
+from robust.utils import unwrap_payload
 from .exceptions import Retry
 from .signals import task_started
 
@@ -16,6 +17,9 @@ class Runner(object):
         self.task = task
 
 
+undefined = object()
+
+
 class SimpleRunner(Runner):
     def call(self, fn, kwargs):
         """
@@ -25,17 +29,19 @@ class SimpleRunner(Runner):
 
     # noinspection PyBroadException
     def run(self):
+        payload = undefined
         try:
             fn = import_string(self.task.name)
-            logger.info('run task %s(**%r)', self.task.name, self.task.payload)
-            kwargs = self.task.payload or {}
+            payload = unwrap_payload(self.task.payload or {})
+
+            logger.info('run task %s(**%r)', self.task.name, payload)
             task_started.send_robust(
                 sender=None,
                 name=self.task.name,
-                payload=self.task.payload,
+                payload=payload,
                 tags=self.task.tags
             )
-            self.call(fn, kwargs)
+            self.call(fn, payload)
 
         except Retry as retry:
             captured = False
@@ -43,18 +49,22 @@ class SimpleRunner(Runner):
                 self.task.retries -= 1
                 if self.task.retries < 0:
                     self.task.mark_failed()
-                    logger.exception('task %s(**%r) failed ', self.task.name, self.task.payload)
+                    logger.exception('task %s(**%r) failed ', self.task.name,
+                                     payload if payload is not undefined else self.task.payload)
                     captured = True
 
             if not captured:
                 self.task.mark_retry(eta=retry.eta, delay=retry.delay)
                 logger.info('retry task %s(**%r) eta=%s delay=%s',
-                            self.task.name, self.task.payload, retry.eta, retry.delay)
+                            self.task.name, payload if payload is not undefined else self.task.payload,
+                            retry.eta, retry.delay)
 
         except Exception:
             self.task.mark_failed()
-            logger.exception('task %s(**%r) failed ', self.task.name, self.task.payload)
+            logger.exception('task %s(**%r) failed ', self.task.name,
+                             payload if payload is not undefined else self.task.payload)
 
         else:
             self.task.mark_succeed()
-            logger.info('task %s(**%r) succeed', self.task.name, self.task.payload)
+            logger.info('task %s(**%r) succeed', self.task.name,
+                        payload if payload is not undefined else self.task.payload)
