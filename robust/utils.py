@@ -1,6 +1,8 @@
 import json
+from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils.module_loading import import_string
 
 from .exceptions import Retry as BaseRetry
@@ -85,3 +87,16 @@ def task(bind=False, tags=None, retries=None):
         return task_cls
 
     return decorator
+
+
+@task()
+def cleanup():
+    from .models import Task
+    now = datetime.now()
+    succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE', timedelta(hours=1))
+    failed_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE', timedelta(weeks=1))
+
+    Task.objects.filter(
+        Q(status=Task.SUCCEED, updated_at__lte=succeed_task_expire) |
+        Q(status=Task.FAILED, updated_at__lte=failed_task_expire)
+    ).delete()

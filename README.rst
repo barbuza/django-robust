@@ -71,6 +71,11 @@ embedded
 
     $ ./manage.py robust_worker --beat
 
+cleanup
+-------
+
+for cleanup completed tasks add ``robust.utils.cleanup`` to robust schedule.
+
 settings
 --------
 
@@ -95,6 +100,10 @@ settings
     ROBUST_ALWAYS_EAGER = False  # if this is True, tasks will be executed locally instead of being sent to the queue
 
     ROBUST_PAYLOAD_PROCESSOR = 'robust.utils.PayloadProcessor'
+
+    ROBUST_SUCCEED_TASK_EXPIRE = datetime.timedelta(hours=1) # succeed tasks cleanup period. Default: 1 hour ago
+
+    ROBUST_FAILED_TASK_EXPIRE = datetime.timedelta(weeks=1) # failed tasks cleanup period. Default: 1 week ago
 
 .. |Build Status| image:: https://travis-ci.org/barbuza/django-robust.svg?branch=master
    :target: https://travis-ci.org/barbuza/django-robust
