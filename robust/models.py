@@ -1,5 +1,7 @@
 import copy
+import sys
 import threading
+import traceback
 
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField, ArrayField
@@ -108,38 +110,52 @@ class Task(models.Model):
     name = models.TextField()
     tags = ArrayField(models.TextField())
     payload = JSONField()
+    traceback = models.TextField(null=True)
     eta = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = TaskManager()
 
-    def mark_retry(self, eta=None, delay=None):
+    def _format_traceback(self):
+        etype, value, tb = sys.exc_info()
+        try:
+            if etype:
+                return ''.join(traceback.format_exception(etype, value, tb))
+            return None
+        finally:
+            del tb
+
+    def mark_retry(self, eta=None, delay=None, trace=None):
         """
         mark task for retry with given {eta} or {delay}
 
         :type eta: datetime.datetime
         :type delay: datetime.timedelta
+        :type trace: str
         """
         if delay is not None:
             eta = timezone.now() + delay
         self.eta = eta
         self.status = self.RETRY
-        self.save()
+        self.traceback = trace
+        self.save(update_fields={'eta', 'status', 'traceback'})
 
     def mark_succeed(self):
         """
         mark task as succeed
         """
         self.status = self.SUCCEED
-        self.save()
+        self.traceback = None
+        self.save(update_fields={'status', 'traceback'})
 
     def mark_failed(self):
         """
         mark task as failed
         """
         self.status = self.FAILED
-        self.save()
+        self.traceback = self._format_traceback()
+        self.save(update_fields={'status', 'traceback'})
 
     @property
     def log(self):
@@ -178,6 +194,7 @@ class TaskEvent(models.Model):
     created_at = models.DateTimeField()
     status = models.PositiveSmallIntegerField(choices=Task.STATUS_CHOICES)
     eta = models.DateTimeField(blank=True, null=True)
+    traceback = models.TextField(null=True)
 
 
 class RateLimitRun(models.Model):

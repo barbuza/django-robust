@@ -54,7 +54,7 @@ class SimpleRunner(Runner):
                     captured = True
 
             if not captured:
-                self.task.mark_retry(eta=retry.eta, delay=retry.delay)
+                self.task.mark_retry(eta=retry.eta, delay=retry.delay, trace=retry.trace)
                 logger.info('retry task %s(**%r) eta=%s delay=%s',
                             self.task.name, payload if payload is not undefined else self.task.payload,
                             retry.eta, retry.delay)

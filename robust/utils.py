@@ -1,5 +1,7 @@
 import json
 from datetime import datetime, timedelta
+import sys
+import traceback
 
 from django.conf import settings
 from django.db.models import Q
@@ -67,7 +69,14 @@ class TaskWrapper(object):
         :type eta: datetime.datetime
         :type delay: datetime.timedelta
         """
-        raise cls.Retry(eta=eta, delay=delay)
+        etype, value, tb = sys.exc_info()
+        trace = None
+        if etype:
+            trace = ''.join(traceback.format_exception(etype, value, tb))
+        try:
+            raise cls.Retry(eta=eta, delay=delay, trace=trace)
+        finally:
+            del tb
 
 
 def task(bind=False, tags=None, retries=None):

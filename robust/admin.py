@@ -8,7 +8,7 @@ from .models import Task
 @admin.register(Task)
 class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
     list_display = ('name', 'payload', 'status', 'created_at', 'updated_at')
-    fields = readonly_fields = ('status', 'name', 'payload', 'tags', 'eta')
+    fields = readonly_fields = ('status', 'name', 'payload', 'tags', 'eta', 'traceback')
     list_filter = ('status',)
     change_actions = actions = ('retry',)
 

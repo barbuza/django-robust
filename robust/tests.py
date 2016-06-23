@@ -388,6 +388,7 @@ class EagerModeTest(TransactionTestCase):
         with self.assertRaises(TypeError):
             foo_task.delay(span=datetime.now())
 
+
 @override_settings(
     ROBUST_ALWAYS_EAGER=True,
     ROBUST_SUCCEED_TASK_EXPIRE=timedelta(hours=1),
@@ -397,7 +398,7 @@ class CleanupTest(TransactionTestCase):
     def setUp(self):
         self.now = datetime.now()
         self.succ_task = Task.objects.create(name='test_succeed', status=Task.SUCCEED)
-        self.succ_task_exp = Task.objects.create(name='test_succeed_exp',status=Task.SUCCEED)
+        self.succ_task_exp = Task.objects.create(name='test_succeed_exp', status=Task.SUCCEED)
         Task.objects.filter(pk=self.succ_task_exp.pk).update(updated_at=self.now - timedelta(hours=1, seconds=30))
 
         self.fail_task = Task.objects.create(name='test_failed', status=Task.FAILED)
@@ -583,3 +584,41 @@ class TestPayloadProcessor(TransactionTestCase):
         with override_settings(ROBUST_ALWAYS_EAGER=True):
             with self.assertRaises(RuntimeError, msg='fail'):
                 foo_task.delay(fail=True)
+
+
+@task()
+def failing_task():
+    raise RuntimeError('spam')
+
+
+@task(bind=True)
+def bound_failing_task(self):
+    try:
+        raise RuntimeError('bar')
+    except RuntimeError:
+        self.retry()
+
+
+class TracebackTest(TransactionTestCase):
+    def test_empty(self):
+        instance = bound_task.delay()
+        SimpleRunner(instance).run()
+        self.assertIsNone(instance.traceback)
+        self.assertIsNone(instance.events.get(status=Task.SUCCEED).traceback)
+
+        instance = bound_task.delay(retry=True)
+        SimpleRunner(instance).run()
+        self.assertIsNone(instance.traceback)
+
+    def test_trace(self):
+        instance = failing_task.delay()
+        SimpleRunner(instance).run()
+        self.assertIn('failing_task', instance.traceback)
+        self.assertIn('RuntimeError', instance.traceback)
+        self.assertIn('spam', instance.traceback)
+
+        instance = bound_failing_task.delay()
+        SimpleRunner(instance).run()
+        self.assertIn('bound_failing_task', instance.traceback)
+        self.assertIn('RuntimeError', instance.traceback)
+        self.assertIn('bar', instance.traceback)
