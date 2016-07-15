@@ -11,10 +11,25 @@ from django.utils import timezone
 from .exceptions import TaskTransactionError
 
 
+class TaskQuerySet(models.QuerySet):
+    def __init__(self, *args, **kwargs):
+        super(TaskQuerySet, self).__init__(*args, **kwargs)
+        self._filter_fails = dict(events__status__in=[Task.RETRY, Task.FAILED])
+
+    def with_fails(self):
+        return self.filter(**self._filter_fails).distinct()
+
+    def without_fails(self):
+        return self.filter(~models.Q(**self._filter_fails)).distinct()
+
+
 class TaskManager(models.Manager):
     _query_cache_lock = threading.Lock()
     _query_cache = None
     _query_limits = None
+
+    def get_queryset(self):
+        return TaskQuerySet(self.model, using=self._db)
 
     @classmethod
     def reset_query_cache(cls):
