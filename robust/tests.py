@@ -13,10 +13,10 @@ from django.test import TransactionTestCase, override_settings, mock
 from django.utils import timezone
 
 from .exceptions import TaskTransactionError, Retry
-from .models import Task, RateLimitRun
+from .models import Task, RateLimitRun, TaskEvent
 from .runners import SimpleRunner
 from .utils import task, TaskWrapper, PayloadProcessor, cleanup
-
+from .admin import TaskEventsFilter
 
 def import_path(fn):
     """
@@ -397,33 +397,64 @@ class EagerModeTest(TransactionTestCase):
 class CleanupTest(TransactionTestCase):
     def setUp(self):
         self.now = datetime.now()
-        self.succ_task = Task.objects.create(name='test_succeed', status=Task.SUCCEED)
-        self.succ_task_exp = Task.objects.create(name='test_succeed_exp', status=Task.SUCCEED)
-        Task.objects.filter(pk=self.succ_task_exp.pk).update(updated_at=self.now - timedelta(hours=1, seconds=30))
 
-        self.fail_task = Task.objects.create(name='test_failed', status=Task.FAILED)
-        self.fail_task_exp = Task.objects.create(name='test_failed_exp', status=Task.FAILED)
-        Task.objects.filter(pk=self.fail_task_exp.pk).update(updated_at=self.now - timedelta(weeks=1, seconds=30))
+    def tearDown(self):
+        Task.objects.all().delete()
+        super(CleanupTest, self).tearDown()
 
-        self.pend_task = Task.objects.create(name='test_pending', status=Task.PENDING)
-        self.pend_task2 = Task.objects.create(name='test_pending', status=Task.PENDING)
-        Task.objects.filter(pk=self.pend_task2.pk).update(updated_at=self.now - timedelta(weeks=2))
+    def _create_task(self, name, status, updated_timedelta=None):
+        task = Task.objects.create(name=name, status=status)
+        if updated_timedelta:
+            self._set_update_at(task.pk, updated_timedelta)
+        return task
 
-        self.retry_task = Task.objects.create(name='test_retry', status=Task.RETRY)
-        self.retry_task2 = Task.objects.create(name='test_retry', status=Task.RETRY)
-        Task.objects.filter(pk=self.retry_task2.pk).update(updated_at=self.now - timedelta(weeks=2))
+    def _set_update_at(self, task_id, updated_timedelta):
+        Task.objects.filter(pk=task_id).update(updated_at=self.now - updated_timedelta)
 
-    def test_cleanup(self):
-        self.assertEqual(Task.objects.count(), 8)
+    def test_succeed(self):
+        task = self._create_task('test_succeed', Task.SUCCEED)
 
+        self.assertEqual(Task.objects.count(), 1)
         cleanup()
-        self.assertEqual(Task.objects.count(), 6)
-        self.assertEqual(Task.objects.filter(name='test_succeed').count(), 1)
-        self.assertEqual(Task.objects.filter(name='test_succeed_exp').count(), 0)
-        self.assertEqual(Task.objects.filter(name='test_failed').count(), 1)
-        self.assertEqual(Task.objects.filter(name='test_failed_exp').count(), 0)
-        self.assertEqual(Task.objects.filter(name='test_retry').count(), 2)
-        self.assertEqual(Task.objects.filter(name='test_pending').count(), 2)
+        self.assertEqual(Task.objects.count(), 1)
+
+        self._set_update_at(task.pk, timedelta(hours=1, seconds=10))
+        cleanup()
+        self.assertEqual(Task.objects.count(), 0)
+
+    def test_succeed_with_fails(self):
+        task = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=1, seconds=10))
+        TaskEvent.objects.create(task=task, status=Task.RETRY, created_at=self.now)
+
+        task2 = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=1, seconds=10))
+        TaskEvent.objects.create(task=task2, status=Task.FAILED, created_at=self.now)
+
+        self.assertEqual(Task.objects.count(), 2)
+        cleanup()
+        self.assertEqual(Task.objects.count(), 2)
+
+        self._set_update_at(task.pk, timedelta(weeks=1, seconds=10))
+        self._set_update_at(task2.pk, timedelta(weeks=1, seconds=10))
+        cleanup()
+
+        self.assertEqual(Task.objects.count(), 0)
+
+    def test_expired(self):
+        tasks = []
+        for status, name in Task.STATUS_CHOICES:
+            tasks.append(self._create_task(name, status))
+
+        task = self._create_task('test_succeed_with_fails', Task.SUCCEED)
+        TaskEvent.objects.create(task=task, status=Task.FAILED, created_at=self.now)
+        tasks.append(task)
+
+        self.assertEqual(Task.objects.count(), 5)
+        cleanup()
+        self.assertEqual(Task.objects.count(), 5)
+
+        Task.objects.all().update(updated_at=self.now-timedelta(weeks=1, seconds=10))
+        cleanup()
+        self.assertEqual(Task.objects.count(), 0)
 
 
 class AdminTest(TransactionTestCase):
@@ -464,6 +495,8 @@ class AdminTest(TransactionTestCase):
         self.assertIn('?status__exact={}'.format(Task.FAILED), content)
         self.assertIn('?status__exact={}'.format(Task.SUCCEED), content)
         self.assertIn('?status__exact={}'.format(Task.RETRY), content)
+        self.assertIn('?events={}'.format(TaskEventsFilter.SUCCEED), content)
+        self.assertIn('?events={}'.format(TaskEventsFilter.TROUBLED), content)
 
         response = self.client.get(self.list_url + '?status__exact={}'.format(Task.PENDING))
         self.assertEqual(response.status_code, 200)
@@ -478,6 +511,12 @@ class AdminTest(TransactionTestCase):
         content = response.content.decode('utf-8')
         self.assertNotIn(self.task_url(self.t1), content)
         self.assertIn(self.task_url(self.t2), content)
+
+        response = self.client.get(self.list_url + '?events={}'.format(TaskEventsFilter.SUCCEED))
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(self.list_url + '?events={}'.format(TaskEventsFilter.TROUBLED))
+        self.assertEqual(response.status_code, 200)
 
     def test_details_page(self):
         response = self.client.get(self.task_url(self.t1))

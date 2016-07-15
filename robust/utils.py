@@ -100,12 +100,14 @@ def task(bind=False, tags=None, retries=None):
 
 @task()
 def cleanup():
-    from .models import Task
+    from .models import Task, TaskEvent
     now = datetime.now()
     succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE', timedelta(hours=1))
     failed_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE', timedelta(weeks=1))
 
+    troubled_pks = TaskEvent.objects.filter(status__in=[Task.RETRY, Task.FAILED]).values_list('task_id', flat=True)
+
     Task.objects.filter(
-        Q(status=Task.SUCCEED, updated_at__lte=succeed_task_expire) |
-        Q(status=Task.FAILED, updated_at__lte=failed_task_expire)
+       ~Q(pk__in=troubled_pks) & Q(updated_at__lte=succeed_task_expire) |
+        Q(updated_at__lte=failed_task_expire)
     ).delete()

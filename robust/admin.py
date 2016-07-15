@@ -3,14 +3,43 @@ from django.contrib import messages
 from django_object_actions import BaseDjangoObjectActions, takes_instance_or_queryset
 
 from .models import Task
+from .utils import unwrap_payload
+
+
+class TaskEventsFilter(admin.SimpleListFilter):
+    SUCCEED = 'succeed'
+    TROUBLED = 'troubled'
+
+    title = parameter_name = 'events'
+
+    def lookups(self, request, model_admin):
+        return [
+            (self.SUCCEED, 'Succeed'),
+            (self.TROUBLED, 'Troubled'),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == self.TROUBLED:
+            queryset = queryset.with_fails()
+        elif self.value() == self.SUCCEED:
+            queryset = queryset.without_fails()
+        return queryset
 
 
 @admin.register(Task)
 class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
-    list_display = ('name', 'payload', 'status', 'created_at', 'updated_at')
+    list_display = ('name', 'payload_unwraped', 'status', 'created_at', 'updated_at')
     fields = readonly_fields = ('status', 'name', 'payload', 'tags', 'eta', 'traceback')
-    list_filter = ('status',)
+    list_filter = (TaskEventsFilter, 'status')
+    search_fields = ('name',)
     change_actions = actions = ('retry',)
+    change_form_template = 'admin/robust/task/change_form.html'
+
+    def payload_unwraped(self, obj):
+        return unwrap_payload(obj.payload)
+
+    payload_unwraped.short_description = 'payload'
+    payload_unwraped.admin_order_field = 'payload'
 
     def get_actions(self, request):
         actions = super(TaskAdmin, self).get_actions(request)
