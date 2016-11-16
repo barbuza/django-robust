@@ -13,6 +13,7 @@ setup(
         'django >= 1.9',
         'psycopg2 >= 2.5',
         'django-object-actions',
-        'schedule'
+        'schedule',
+        'colorlog',
     ]
 )
