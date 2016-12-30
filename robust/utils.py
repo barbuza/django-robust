@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import sys
 import traceback
 
-from django.utils.inspect import get_func_args
+from django.utils.inspect import getargspec
 from django.conf import settings
 from django.db.models import Q
 from django.utils.module_loading import import_string
@@ -55,7 +55,7 @@ class TaskWrapper(object):
         name = '{}.{}'.format(cls.__module__, cls.__name__)
 
         if args:
-            fn_args = get_func_args(cls.fn)
+            fn_args, _, _, _ = getargspec(cls.fn)
             if cls.bind:
                 fn_args = fn_args[1:]
 
