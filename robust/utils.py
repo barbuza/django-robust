@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import sys
 import traceback
 
+from django.utils.inspect import get_func_args
 from django.conf import settings
 from django.db.models import Q
 from django.utils.module_loading import import_string
@@ -40,16 +41,36 @@ class TaskWrapper(object):
     tags = []
     Retry = BaseRetry
 
-    def __new__(cls, **kwargs):
+    def __new__(cls, *args, **kwargs):
         if cls.bind:
-            return cls.fn(cls, **kwargs)
-        return cls.fn(**kwargs)
+            return cls.fn(cls, *args, **kwargs)
+        return cls.fn(*args, **kwargs)
 
     @classmethod
-    def delay(cls, **kwargs):
+    def delay(cls, *args, **kwargs):
         """
         :rtype robust.models.Task
         """
+
+        name = '{}.{}'.format(cls.__module__, cls.__name__)
+
+        if args:
+            fn_args = get_func_args(cls.fn)
+            if cls.bind:
+                fn_args = fn_args[1:]
+
+            if len(args) > len(fn_args):
+                raise TypeError('wrong args number passed for {}'.format(name))
+
+            positional = fn_args[:len(args)]
+            for key in positional:
+                if key in kwargs:
+                    raise TypeError('{} used as positional argument for {}'.format(key, name))
+
+            kwargs = dict(kwargs)
+            for key, value in zip(fn_args, args):
+                kwargs[key] = value
+
         wrapped_kwargs = wrap_payload(kwargs)
 
         if getattr(settings, 'ROBUST_ALWAYS_EAGER', False):
@@ -60,8 +81,7 @@ class TaskWrapper(object):
             return cls.fn(**kwargs)
 
         from .models import Task
-        return Task.objects.create(name='{}.{}'.format(cls.__module__, cls.__name__),
-                                   payload=wrapped_kwargs, tags=cls.tags, retries=cls.retries)
+        return Task.objects.create(name=name, payload=wrapped_kwargs, tags=cls.tags, retries=cls.retries)
 
     @classmethod
     def retry(cls, eta=None, delay=None):
@@ -108,6 +128,6 @@ def cleanup():
     troubled_pks = TaskEvent.objects.filter(status__in=[Task.RETRY, Task.FAILED]).values_list('task_id', flat=True)
 
     Task.objects.filter(
-       ~Q(pk__in=troubled_pks) & Q(updated_at__lte=succeed_task_expire) |
+        ~Q(pk__in=troubled_pks) & Q(updated_at__lte=succeed_task_expire) |
         Q(updated_at__lte=failed_task_expire)
     ).delete()

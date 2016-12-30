@@ -18,6 +18,7 @@ from .runners import SimpleRunner
 from .utils import task, TaskWrapper, PayloadProcessor, cleanup
 from .admin import TaskEventsFilter
 
+
 def import_path(fn):
     """
     :type fn: Any
@@ -366,6 +367,48 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(retries=1).count(), 1)
 
 
+@task()
+def args_task(a, b, c):
+    pass
+
+
+@task(bind=True)
+def bound_args_task(self, a, b, c):
+    pass
+
+
+class ArgsTest(TransactionTestCase):
+    def test_unbound(self):
+        args_task(1, 2, 3)
+
+        self.assertDictEqual(args_task.delay().payload, {})
+        self.assertDictEqual(args_task.delay(1).payload, {'a': 1})
+        self.assertDictEqual(args_task.delay(1, 2).payload, {'a': 1, 'b': 2})
+        self.assertDictEqual(args_task.delay(1, 2, 3).payload, {'a': 1, 'b': 2, 'c': 3})
+        self.assertDictEqual(args_task.delay(1, 2, c=3).payload, {'a': 1, 'b': 2, 'c': 3})
+
+        with self.assertRaises(TypeError):
+            args_task.delay(1, 2, 3, 4)
+
+        with self.assertRaises(TypeError):
+            args_task.delay(1, a=1)
+
+    def test_bound(self):
+        bound_args_task(1, 2, 3)
+
+        self.assertDictEqual(bound_args_task.delay().payload, {})
+        self.assertDictEqual(bound_args_task.delay(1).payload, {'a': 1})
+        self.assertDictEqual(bound_args_task.delay(1, 2).payload, {'a': 1, 'b': 2})
+        self.assertDictEqual(bound_args_task.delay(1, 2, 3).payload, {'a': 1, 'b': 2, 'c': 3})
+        self.assertDictEqual(bound_args_task.delay(1, 2, c=3).payload, {'a': 1, 'b': 2, 'c': 3})
+
+        with self.assertRaises(TypeError):
+            bound_args_task.delay(1, 2, 3, 4)
+
+        with self.assertRaises(TypeError):
+            bound_args_task.delay(1, a=1)
+
+
 class EagerModeTest(TransactionTestCase):
     def test_eager_mode(self):
         with override_settings(ROBUST_ALWAYS_EAGER=True):
@@ -452,7 +495,7 @@ class CleanupTest(TransactionTestCase):
         cleanup()
         self.assertEqual(Task.objects.count(), 5)
 
-        Task.objects.all().update(updated_at=self.now-timedelta(weeks=1, seconds=10))
+        Task.objects.all().update(updated_at=self.now - timedelta(weeks=1, seconds=10))
         cleanup()
         self.assertEqual(Task.objects.count(), 0)
 
