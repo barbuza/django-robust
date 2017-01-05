@@ -35,7 +35,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'robust.apps.RobustConfig'
+    'robust.apps.RobustConfig',
+    'dummy'
 ]
 
 MIDDLEWARE_CLASSES = [

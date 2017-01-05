@@ -4,3 +4,4 @@ Django==1.9
 django-object-actions==0.8.2
 psycopg2==2.5
 schedule==0.3.2
+pygments==2.1.3

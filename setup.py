@@ -8,12 +8,13 @@ setup(
     author_email='barbuzaster@gmail.com',
     url='https://github.com/barbuza/django-robust',
     include_package_data=True,
-    packages=find_packages(exclude=['django_robust']),
+    packages=find_packages(exclude=['django_robust', 'dummy']),
     install_requires=[
         'django >= 1.9',
         'psycopg2 >= 2.5',
         'django-object-actions',
         'schedule',
         'colorlog',
+        'pygments'
     ]
 )
