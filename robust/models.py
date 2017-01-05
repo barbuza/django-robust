@@ -154,7 +154,7 @@ class Task(models.Model):
         self.eta = eta
         self.status = self.RETRY
         self.traceback = trace
-        self.save(update_fields={'eta', 'status', 'traceback', 'retries'})
+        self.save(update_fields={'eta', 'status', 'traceback', 'retries', 'updated_at'})
 
     def mark_succeed(self):
         """
@@ -162,7 +162,7 @@ class Task(models.Model):
         """
         self.status = self.SUCCEED
         self.traceback = None
-        self.save(update_fields={'status', 'traceback'})
+        self.save(update_fields={'status', 'traceback', 'updated_at'})
 
     def mark_failed(self):
         """
@@ -170,7 +170,7 @@ class Task(models.Model):
         """
         self.status = self.FAILED
         self.traceback = self._format_traceback()
-        self.save(update_fields={'status', 'traceback'})
+        self.save(update_fields={'status', 'traceback', 'updated_at'})
 
     @property
     def log(self):
