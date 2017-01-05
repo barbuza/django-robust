@@ -154,7 +154,7 @@ class Task(models.Model):
         self.eta = eta
         self.status = self.RETRY
         self.traceback = trace
-        self.save(update_fields={'eta', 'status', 'traceback'})
+        self.save(update_fields={'eta', 'status', 'traceback', 'retries'})
 
     def mark_succeed(self):
         """
