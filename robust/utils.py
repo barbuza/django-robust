@@ -1,11 +1,12 @@
 import json
-from datetime import datetime, timedelta
 import sys
 import traceback
+from datetime import datetime, timedelta
 
-from django.utils.inspect import getargspec
 from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone
+from django.utils.inspect import getargspec
 from django.utils.module_loading import import_string
 
 from .exceptions import Retry as BaseRetry
@@ -34,6 +35,27 @@ class PayloadProcessor(object):
         return payload
 
 
+class ArgsWrapper(object):
+    def __init__(self, wrapper, eta=None, delay=None):
+        """
+        :type wrapper: TaskWrapper
+        :type eta: datetime
+        :type delay: timedelta
+        """
+        self.wrapper = wrapper
+
+        if eta and delay:
+            raise RuntimeError('both eta and delay provided')
+
+        if delay:
+            eta = timezone.now() + delay
+
+        self.eta = eta
+
+    def delay(self, *args, **kwargs):
+        return self.wrapper.delay_with_task_kwargs({'eta': self.eta}, *args, **kwargs)
+
+
 class TaskWrapper(object):
     bind = False
     fn = None
@@ -47,7 +69,16 @@ class TaskWrapper(object):
         return cls.fn(*args, **kwargs)
 
     @classmethod
-    def delay(cls, *args, **kwargs):
+    def with_task_kwargs(cls, eta=None, delay=None):
+        """
+        :type eta: datetime
+        :type delay: timedelta
+        :rtype ArgsWrapper
+        """
+        return ArgsWrapper(cls, eta=eta, delay=delay)
+
+    @classmethod
+    def delay_with_task_kwargs(cls, _task_kwargs, *args, **kwargs):
         """
         :rtype robust.models.Task
         """
@@ -81,13 +112,25 @@ class TaskWrapper(object):
             return cls.fn(**kwargs)
 
         from .models import Task
-        return Task.objects.create(name=name, payload=wrapped_kwargs, tags=cls.tags, retries=cls.retries)
+        _kwargs = {
+            'tags': cls.tags,
+            'retries': cls.retries
+        }
+        _kwargs.update(_task_kwargs)
+        return Task.objects.create(name=name, payload=wrapped_kwargs, **_kwargs)
+
+    @classmethod
+    def delay(cls, *args, **kwargs):
+        """
+        :rtype robust.models.Task
+        """
+        return cls.delay_with_task_kwargs({}, *args, **kwargs)
 
     @classmethod
     def retry(cls, eta=None, delay=None):
         """
-        :type eta: datetime.datetime
-        :type delay: datetime.timedelta
+        :type eta: datetime
+        :type delay: timedelta
         """
         etype, value, tb = sys.exc_info()
         trace = None

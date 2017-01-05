@@ -12,11 +12,11 @@ from django.db import transaction, close_old_connections
 from django.test import TransactionTestCase, override_settings, mock
 from django.utils import timezone
 
+from .admin import TaskEventsFilter
 from .exceptions import TaskTransactionError, Retry
 from .models import Task, RateLimitRun, TaskEvent
 from .runners import SimpleRunner
 from .utils import task, TaskWrapper, PayloadProcessor, cleanup
-from .admin import TaskEventsFilter
 
 
 def import_path(fn):
@@ -704,3 +704,20 @@ class TracebackTest(TransactionTestCase):
         self.assertIn('bound_failing_task', instance.traceback)
         self.assertIn('RuntimeError', instance.traceback)
         self.assertIn('bar', instance.traceback)
+
+
+class TaskKwargsTest(TransactionTestCase):
+    def test_eta(self):
+        eta = timezone.now() + timedelta(hours=1)
+        t = retry_task.with_task_kwargs(eta=eta).delay(foo='bar')
+        self.assertEqual(eta, t.eta)
+        self.assertDictEqual({'foo': 'bar'}, t.payload)
+
+    def test_delay(self):
+        t = retry_task.with_task_kwargs(delay=timedelta(hours=1)).delay(foo='bar')
+        self.assertAlmostEqual((timezone.now() + timedelta(hours=1)).timestamp(), t.eta.timestamp(), delta=5)
+        self.assertDictEqual({'foo': 'bar'}, t.payload)
+
+    def test_both(self):
+        with self.assertRaises(RuntimeError):
+            retry_task.with_task_kwargs(eta=timezone.now(), delay=timedelta(hours=1))
