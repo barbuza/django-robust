@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='django-robust',
-    version='0.1.12',
+    version='0.1.13',
     description='robust background queue for django',
     author='Victor Kotseruba',
     author_email='barbuzaster@gmail.com',
