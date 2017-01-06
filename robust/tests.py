@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 import time
-from datetime import timedelta, datetime
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -426,10 +426,10 @@ class EagerModeTest(TransactionTestCase):
     def test_kwargs_non_json_serializable(self):
         with override_settings(ROBUST_ALWAYS_EAGER=True):
             with self.assertRaises(TypeError):
-                foo_task.delay(spam=datetime.now())
+                foo_task.delay(spam=timezone.now())
 
         with self.assertRaises(TypeError):
-            foo_task.delay(span=datetime.now())
+            foo_task.delay(span=timezone.now())
 
 
 @override_settings(
@@ -438,46 +438,39 @@ class EagerModeTest(TransactionTestCase):
     ROBUST_FAILED_TASK_EXPIRE=timedelta(weeks=1),
 )
 class CleanupTest(TransactionTestCase):
-    def setUp(self):
-        self.now = datetime.now()
-
-    def tearDown(self):
-        Task.objects.all().delete()
-        super(CleanupTest, self).tearDown()
-
     def _create_task(self, name, status, updated_timedelta=None):
-        task = Task.objects.create(name=name, status=status)
+        t = Task.objects.create(name=name, status=status)
         if updated_timedelta:
-            self._set_update_at(task.pk, updated_timedelta)
-        return task
+            self._set_update_at(t.pk, updated_timedelta)
+        return t
 
     def _set_update_at(self, task_id, updated_timedelta):
-        Task.objects.filter(pk=task_id).update(updated_at=self.now - updated_timedelta)
+        Task.objects.filter(pk=task_id).update(updated_at=timezone.now() - updated_timedelta)
 
     def test_succeed(self):
-        task = self._create_task('test_succeed', Task.SUCCEED)
+        t = self._create_task('test_succeed', Task.SUCCEED)
 
         self.assertEqual(Task.objects.count(), 1)
         cleanup()
         self.assertEqual(Task.objects.count(), 1)
 
-        self._set_update_at(task.pk, timedelta(hours=1, seconds=10))
+        self._set_update_at(t.pk, timedelta(hours=2))
         cleanup()
         self.assertEqual(Task.objects.count(), 0)
 
     def test_succeed_with_fails(self):
-        task = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=1, seconds=10))
-        TaskEvent.objects.create(task=task, status=Task.RETRY, created_at=self.now)
+        t1 = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=2))
+        TaskEvent.objects.create(task=t1, status=Task.RETRY, created_at=timezone.now())
 
-        task2 = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=1, seconds=10))
-        TaskEvent.objects.create(task=task2, status=Task.FAILED, created_at=self.now)
+        t2 = self._create_task('test_succeed', Task.SUCCEED, timedelta(hours=2))
+        TaskEvent.objects.create(task=t2, status=Task.FAILED, created_at=timezone.now())
 
         self.assertEqual(Task.objects.count(), 2)
         cleanup()
         self.assertEqual(Task.objects.count(), 2)
 
-        self._set_update_at(task.pk, timedelta(weeks=1, seconds=10))
-        self._set_update_at(task2.pk, timedelta(weeks=1, seconds=10))
+        self._set_update_at(t1.pk, timedelta(weeks=2))
+        self._set_update_at(t2.pk, timedelta(weeks=2))
         cleanup()
 
         self.assertEqual(Task.objects.count(), 0)
@@ -487,17 +480,18 @@ class CleanupTest(TransactionTestCase):
         for status, name in Task.STATUS_CHOICES:
             tasks.append(self._create_task(name, status))
 
-        task = self._create_task('test_succeed_with_fails', Task.SUCCEED)
-        TaskEvent.objects.create(task=task, status=Task.FAILED, created_at=self.now)
-        tasks.append(task)
+        t = self._create_task('test_succeed_with_fails', Task.SUCCEED)
+        TaskEvent.objects.create(task=t, status=Task.FAILED, created_at=timezone.now())
+        tasks.append(t)
 
         self.assertEqual(Task.objects.count(), 5)
         cleanup()
         self.assertEqual(Task.objects.count(), 5)
 
-        Task.objects.all().update(updated_at=self.now - timedelta(weeks=1, seconds=10))
+        Task.objects.all().update(updated_at=timezone.now() - timedelta(weeks=2))
         cleanup()
-        self.assertEqual(Task.objects.count(), 0)
+
+        self.assertFalse(Task.objects.filter(status__in={Task.SUCCEED, Task.FAILED}).exists())
 
 
 class AdminTest(TransactionTestCase):
@@ -715,7 +709,9 @@ class TaskKwargsTest(TransactionTestCase):
 
     def test_delay(self):
         t = retry_task.with_task_kwargs(delay=timedelta(hours=1)).delay(foo='bar')
-        self.assertAlmostEqual((timezone.now() + timedelta(hours=1)).timestamp(), t.eta.timestamp(), delta=5)
+        self.assertAlmostEqual(time.mktime((timezone.now() + timedelta(hours=1)).timetuple()),
+                               time.mktime(t.eta.timetuple()),
+                               delta=5)
         self.assertDictEqual({'foo': 'bar'}, t.payload)
 
     def test_both(self):

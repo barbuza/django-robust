@@ -4,7 +4,6 @@ import traceback
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db.models import Q
 from django.utils import timezone
 from django.utils.inspect import getargspec
 from django.utils.module_loading import import_string
@@ -163,14 +162,18 @@ def task(bind=False, tags=None, retries=None):
 
 @task()
 def cleanup():
-    from .models import Task, TaskEvent
-    now = datetime.now()
+    from .models import Task
+    now = timezone.now()
     succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE', timedelta(hours=1))
-    failed_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE', timedelta(weeks=1))
+    troubled_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE', timedelta(weeks=1))
 
-    troubled_pks = TaskEvent.objects.filter(status__in=[Task.RETRY, Task.FAILED]).values_list('task_id', flat=True)
+    Task.objects \
+        .filter(events__status__in={Task.FAILED, Task.RETRY},
+                status__in={Task.FAILED, Task.SUCCEED},
+                updated_at__lte=troubled_task_expire) \
+        .delete()
 
-    Task.objects.filter(
-        ~Q(pk__in=troubled_pks) & Q(updated_at__lte=succeed_task_expire) |
-        Q(updated_at__lte=failed_task_expire)
-    ).delete()
+    Task.objects \
+        .exclude(events__status__in={Task.FAILED, Task.RETRY}) \
+        .filter(status=Task.SUCCEED, updated_at__lte=succeed_task_expire) \
+        .delete()
