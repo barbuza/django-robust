@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name='django-robust',
@@ -16,5 +16,14 @@ setup(
         'schedule',
         'colorlog',
         'pygments'
+    ],
+    setup_requires=['pytest-runner'],
+    tests_require=[
+        'pytest',
+        'pytest-sugar',
+        'pytest-django',
+        'pytest-cov',
+        'colorlog',
+        'coveralls'
     ]
 )

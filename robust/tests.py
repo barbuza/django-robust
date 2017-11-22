@@ -4,19 +4,21 @@ import signal
 import threading
 import time
 from datetime import timedelta
+from typing import Tuple
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.urlresolvers import reverse
-from django.db import transaction, close_old_connections
-from django.test import TransactionTestCase, override_settings, mock
+from django.db import close_old_connections, transaction
+from django.test import TransactionTestCase, mock, override_settings
 from django.utils import timezone
 
+from . import signals
 from .admin import TaskEventsFilter
-from .exceptions import TaskTransactionError, Retry
-from .models import Task, RateLimitRun, TaskEvent
+from .exceptions import Retry, TaskTransactionError
+from .models import RateLimitRun, Task, TaskEvent
 from .runners import SimpleRunner
-from .utils import task, TaskWrapper, PayloadProcessor, cleanup
+from .utils import PayloadProcessor, TaskWrapper, cleanup, task
 
 
 def import_path(fn):
@@ -158,6 +160,25 @@ TEST_TASK_PATH = import_path(test_task)
 
 
 class SimpleRunnerTest(TransactionTestCase):
+    def _connect_handlers(self) -> Tuple[mock.Mock, mock.Mock, mock.Mock, mock.Mock]:
+        started, succeed, failed, retry = mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock()
+
+        signals.task_started.connect(started)
+        signals.task_succeed.connect(succeed)
+        signals.task_failed.connect(failed)
+        signals.task_retry.connect(retry)
+
+        return started, succeed, failed, retry
+
+    def _assert_signals_called(self, *handlers: mock.Mock) -> None:
+        for handler in handlers:
+            handler.assert_called_once()
+            self.assertGreaterEqual(set(handler.call_args[1].keys()), signals.task_signal_args)
+
+    def _assert_signals_not_called(self, *handlers: mock.Mock) -> None:
+        for handler in handlers:
+            handler.assert_not_called()
+
     def test_exec(self):
         t = Task.objects.create(name=TEST_TASK_PATH, payload={'foo': 'bar'})
         runner = SimpleRunner(t)
@@ -169,6 +190,7 @@ class SimpleRunnerTest(TransactionTestCase):
         eta = timezone.now()
         t = Task.objects.create(name=TEST_TASK_PATH, retries=2)
         runner = SimpleRunner(t)
+
         with mock.patch(TEST_TASK_PATH, side_effect=Retry(eta=eta)):
             runner.run()
             self.assertEqual(t.status, t.RETRY)
@@ -184,15 +206,21 @@ class SimpleRunnerTest(TransactionTestCase):
     def test_failed(self):
         t = Task.objects.create(name=TEST_TASK_PATH)
         runner = SimpleRunner(t)
+        started, succeed, failed, retry = self._connect_handlers()
         with mock.patch(TEST_TASK_PATH, side_effect=RuntimeError()):
             runner.run()
         self.assertEqual(t.status, t.FAILED)
+        self._assert_signals_called(started, failed)
+        self._assert_signals_not_called(succeed, retry)
 
     def test_succeed(self):
         t = Task.objects.create(name=TEST_TASK_PATH)
         runner = SimpleRunner(t)
+        started, succeed, failed, retry = self._connect_handlers()
         runner.run()
         self.assertEqual(t.status, t.SUCCEED)
+        self._assert_signals_called(started, succeed)
+        self._assert_signals_not_called(failed, retry)
 
 
 def worker_test_fn(desired_status):

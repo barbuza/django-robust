@@ -3,9 +3,10 @@ import select
 import signal
 import threading
 import time
+from typing import Optional
 
 from django.conf import settings
-from django.db import transaction, connection, close_old_connections
+from django.db import close_old_connections, connection, transaction
 
 from .beat import BeatThread, get_scheduler
 from .models import Task
@@ -17,11 +18,8 @@ class Stop(Exception):
     pass
 
 
-class WorkerLimit(object):
-    def __init__(self, limit):
-        """
-        :type limit: int
-        """
+class WorkerLimit:
+    def __init__(self, limit: int) -> None:
         self.lock = threading.Lock()
         self.limit = limit
 
@@ -35,20 +33,14 @@ class WorkerLimit(object):
 
 
 class WorkerThread(threading.Thread):
-    def __init__(self, number, runner_cls, bulk, worker_limit):
-        """
-        :type number: int
-        :type runner_cls: type
-        :type bulk: int
-        :type worker_limit: WorkerLimit
-        """
+    def __init__(self, number: int, runner_cls: type, bulk: int, worker_limit: Optional[WorkerLimit]) -> None:
         super(WorkerThread, self).__init__(name='WorkerThread-{}'.format(number))
         self.runner_cls = runner_cls
         self.bulk = bulk
         self.worker_limit = worker_limit
         self.terminate = False
 
-    def should_terminate(self):
+    def should_terminate(self) -> bool:
         if self.terminate:
             return True
         if self.worker_limit:
@@ -99,14 +91,7 @@ class WorkerThread(threading.Thread):
             close_old_connections()
 
 
-def run_worker(concurrency, bulk, limit, runner_cls, beat):
-    """
-    :type concurrency: int
-    :type bulk: int
-    :type limit: int
-    :type runner_cls: type
-    """
-
+def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type, beat: bool) -> None:
     worker_limit = None
     if limit:
         worker_limit = WorkerLimit(limit)
@@ -130,7 +115,7 @@ def run_worker(concurrency, bulk, limit, runner_cls, beat):
         with connection.cursor() as cursor:
             cursor.execute('NOTIFY robust')
 
-    def signal_handler(signum, frame):
+    def signal_handler(*_):
         logger.warning('terminate worker')
         terminate()
 

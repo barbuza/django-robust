@@ -9,3 +9,5 @@ __pycache__
 /MANIFEST
 /.coverage
 /build
+/.cache
+/.eggs
