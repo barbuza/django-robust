@@ -11,3 +11,4 @@ __pycache__
 /build
 /.cache
 /.eggs
+/.coverage.*
