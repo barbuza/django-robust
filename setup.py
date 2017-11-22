@@ -3,8 +3,7 @@ import sys
 from setuptools import find_packages, setup
 
 if sys.version_info < (3, 6):
-    sys.stderr.write('django-robust 0.2.x only supports python3.6 and newer\n')
-    sys.exit(1)
+    raise ImportError('django-robust 0.2.x only supports python3.6 and newer')
 
 setup(
     name='django-robust',
@@ -15,6 +14,7 @@ setup(
     url='https://github.com/barbuza/django-robust',
     include_package_data=True,
     packages=find_packages(exclude=['django_robust', 'dummy']),
+    python_requires='>=3.6',
     install_requires=[
         'django >= 1.9',
         'psycopg2 >= 2.5',
