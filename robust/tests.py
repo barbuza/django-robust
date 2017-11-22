@@ -745,3 +745,19 @@ class TaskKwargsTest(TransactionTestCase):
     def test_both(self):
         with self.assertRaises(RuntimeError):
             retry_task.with_task_kwargs(eta=timezone.now(), delay=timedelta(hours=1))
+
+
+class NotifyTest(TransactionTestCase):
+    def test_notify(self):
+        with mock.patch('robust.receivers._notify_change') as notify_mock:
+            foo_task.delay()
+            foo_task.delay()
+        notify_mock.assert_has_calls([notify_mock(), notify_mock()])
+
+    def test_notify_once_per_transaction(self):
+        with transaction.atomic():
+            with mock.patch('robust.receivers._notify_change') as notify_mock:
+                foo_task.delay()
+                foo_task.delay()
+                foo_task.delay()
+        notify_mock.assert_called_once()

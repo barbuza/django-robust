@@ -1,11 +1,11 @@
-from django.contrib import admin
-from django.contrib import messages
+import sys
+
+from django.contrib import admin, messages
 from django.utils.safestring import mark_safe
 from django_object_actions import BaseDjangoObjectActions, takes_instance_or_queryset
 from pygments import highlight
 from pygments.formatters import get_formatter_by_name
 from pygments.lexers import get_lexer_by_name
-import sys
 
 from .models import Task
 from .utils import unwrap_payload
