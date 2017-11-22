@@ -2,45 +2,43 @@ import json
 import sys
 import traceback
 from datetime import datetime, timedelta
+from typing import Any, Callable, ClassVar, List, Optional, Type
 
 from django.conf import settings
 from django.utils import timezone
 from django.utils.inspect import getargspec
 from django.utils.module_loading import import_string
 
+import robust
 from .exceptions import Retry as BaseRetry
 
 
-def get_kwargs_processor_cls():
+def get_kwargs_processor_cls() -> Type['PayloadProcessor']:
     processor_cls_path = getattr(settings, 'ROBUST_PAYLOAD_PROCESSOR', 'robust.utils.PayloadProcessor')
     return import_string(processor_cls_path)
 
 
-def wrap_payload(payload):
+def wrap_payload(payload: dict) -> Any:
     return get_kwargs_processor_cls().wrap_payload(payload)
 
 
-def unwrap_payload(payload):
+def unwrap_payload(payload: Any) -> dict:
     return get_kwargs_processor_cls().unwrap_payload(payload)
 
 
-class PayloadProcessor(object):
+class PayloadProcessor:
     @staticmethod
-    def wrap_payload(payload):
+    def wrap_payload(payload: dict) -> Any:
         return payload
 
     @staticmethod
-    def unwrap_payload(payload):
+    def unwrap_payload(payload: Any) -> dict:
         return payload
 
 
-class ArgsWrapper(object):
-    def __init__(self, wrapper, eta=None, delay=None):
-        """
-        :type wrapper: TaskWrapper
-        :type eta: datetime
-        :type delay: timedelta
-        """
+class ArgsWrapper:
+    def __init__(self, wrapper: Type['TaskWrapper'], eta: Optional[datetime] = None,
+                 delay: Optional[timedelta] = None) -> None:
         self.wrapper = wrapper
 
         if eta and delay:
@@ -51,37 +49,29 @@ class ArgsWrapper(object):
 
         self.eta = eta
 
-    def delay(self, *args, **kwargs):
+    def delay(self, *args: Any, **kwargs: Any) -> 'robust.models.Task':
         return self.wrapper.delay_with_task_kwargs({'eta': self.eta}, *args, **kwargs)
 
 
-class TaskWrapper(object):
-    bind = False
-    fn = None
-    retries = None
-    tags = []
-    Retry = BaseRetry
+class TaskWrapper:
+    bind: ClassVar[bool]
+    fn: ClassVar[Callable[..., Any]]
+    retries: ClassVar[Optional[int]]
+    tags: ClassVar[List[str]] = []
+    Retry: ClassVar[Type[BaseRetry]]
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
         if cls.bind:
             return cls.fn(cls, *args, **kwargs)
         return cls.fn(*args, **kwargs)
 
     @classmethod
-    def with_task_kwargs(cls, eta=None, delay=None):
-        """
-        :type eta: datetime
-        :type delay: timedelta
-        :rtype ArgsWrapper
-        """
+    def with_task_kwargs(cls, eta: Optional[datetime] = None,
+                         delay: Optional[timedelta] = None) -> ArgsWrapper:
         return ArgsWrapper(cls, eta=eta, delay=delay)
 
     @classmethod
-    def delay_with_task_kwargs(cls, _task_kwargs, *args, **kwargs):
-        """
-        :rtype robust.models.Task
-        """
-
+    def delay_with_task_kwargs(cls, _task_kwargs: dict, *args: Any, **kwargs: Any) -> 'robust.models.Task':
         name = '{}.{}'.format(cls.__module__, cls.__name__)
 
         if args:
@@ -119,21 +109,21 @@ class TaskWrapper(object):
         return Task.objects.create(name=name, payload=wrapped_kwargs, **_kwargs)
 
     @classmethod
-    def delay(cls, *args, **kwargs):
+    def delay(cls, *args: Any, **kwargs: Any) -> 'robust.models.Task':
         """
         :rtype robust.models.Task
         """
         return cls.delay_with_task_kwargs({}, *args, **kwargs)
 
     @classmethod
-    def retry(cls, eta=None, delay=None):
+    def retry(cls, eta: Optional[datetime] = None, delay: Optional[timedelta] = None) -> None:
         """
         :type eta: datetime
         :type delay: timedelta
         """
         etype, value, tb = sys.exc_info()
         trace = None
-        if etype:
+        if etype and value and tb:
             trace = ''.join(traceback.format_exception(etype, value, tb))
         try:
             raise cls.Retry(eta=eta, delay=delay, trace=trace)
@@ -141,12 +131,13 @@ class TaskWrapper(object):
             del tb
 
 
-def task(bind=False, tags=None, retries=None):
-    def decorator(fn):
+def task(bind: bool = False, tags: Optional[List[str]] = None,
+         retries: Optional[int] = None) -> Callable[['function'], Type[TaskWrapper]]:
+    def decorator(fn: 'function') -> Type[TaskWrapper]:
         retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
         retry_cls.__module__ = fn.__module__
 
-        task_cls = type(fn.__name__, (TaskWrapper,), {
+        task_cls: Type[TaskWrapper] = type(fn.__name__, (TaskWrapper,), {
             'fn': staticmethod(fn),
             'retries': retries,
             'tags': tags,
@@ -161,7 +152,7 @@ def task(bind=False, tags=None, retries=None):
 
 
 @task()
-def cleanup():
+def cleanup() -> None:
     from .models import Task
     now = timezone.now()
     succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE', timedelta(hours=1))

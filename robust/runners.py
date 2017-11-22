@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Callable
 
 from django.utils.module_loading import import_string
 
@@ -21,14 +22,14 @@ undefined = object()
 
 
 class SimpleRunner(Runner):
-    def call(self, fn: callable, kwargs: dict) -> None:
+    def call(self, fn: Callable[..., Any], kwargs: dict) -> None:
         """
         call task function, override in subclasses for custom signals etc
         """
         fn(**kwargs)
 
     # noinspection PyBroadException
-    def run(self):
+    def run(self) -> None:
         payload = undefined
         log_payload = self.task.payload
 

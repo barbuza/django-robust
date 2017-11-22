@@ -3,7 +3,7 @@ import select
 import signal
 import threading
 import time
-from typing import Optional
+from typing import Any, List, Optional, Union
 
 from django.conf import settings
 from django.db import close_old_connections, connection, transaction
@@ -23,11 +23,11 @@ class WorkerLimit:
         self.lock = threading.Lock()
         self.limit = limit
 
-    def dec(self, amount):
+    def dec(self, amount: int) -> None:
         with self.lock:
             self.limit -= amount
 
-    def should_terminate(self):
+    def should_terminate(self) -> bool:
         with self.lock:
             return self.limit <= 0
 
@@ -48,8 +48,7 @@ class WorkerThread(threading.Thread):
                 return True
         return False
 
-    # noinspection PyBroadException
-    def run(self):
+    def run(self) -> None:
         try:
             notify_timeout = getattr(settings, 'ROBUST_NOTIFY_TIMEOUT', 10)
             worker_failure_timeout = getattr(settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
@@ -96,26 +95,26 @@ def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type, beat: 
     if limit:
         worker_limit = WorkerLimit(limit)
 
-    threads = []
+    threads: List[Union[BeatThread, WorkerThread]] = []
 
     if beat:
         scheduler = get_scheduler()
-        thread = BeatThread(scheduler)
-        threads.append(thread)
-        thread.start()
+        beat_thread = BeatThread(scheduler)
+        threads.append(beat_thread)
+        beat_thread.start()
 
     for number in range(concurrency):
-        thread = WorkerThread(number, runner_cls, bulk, worker_limit)
-        threads.append(thread)
-        thread.start()
+        worker_thread = WorkerThread(number, runner_cls, bulk, worker_limit)
+        threads.append(worker_thread)
+        worker_thread.start()
 
-    def terminate():
+    def terminate() -> None:
         for t in threads:
             t.terminate = True
         with connection.cursor() as cursor:
             cursor.execute('NOTIFY robust')
 
-    def signal_handler(*_):
+    def signal_handler(*_: Any) -> None:
         logger.warning('terminate worker')
         terminate()
 

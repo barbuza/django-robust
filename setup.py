@@ -1,4 +1,10 @@
+import sys
+
 from setuptools import find_packages, setup
+
+if sys.version_info < (3, 6):
+    sys.stderr.write('django-robust 0.2.x only supports python3.6 and newer\n')
+    sys.exit(1)
 
 setup(
     name='django-robust',
@@ -14,7 +20,6 @@ setup(
         'psycopg2 >= 2.5',
         'django-object-actions',
         'schedule',
-        'colorlog',
         'pygments'
     ],
     setup_requires=['pytest-runner'],
@@ -24,6 +29,5 @@ setup(
         'pytest-django',
         'pytest-cov',
         'colorlog',
-        'coveralls'
     ]
 )

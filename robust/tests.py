@@ -4,7 +4,6 @@ import signal
 import threading
 import time
 from datetime import timedelta
-from typing import Tuple
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -45,11 +44,11 @@ class LockTask(threading.Thread):
 class TaskManagerTest(TransactionTestCase):
     def test_repr(self):
         t1 = Task.objects.create(name='foo')
-        self.assertEqual(repr(t1), '<Task foo #{} pending>'.format(t1.pk))
+        self.assertEqual(repr(t1), f'<Task foo #{t1.pk} pending>')
 
         eta = timezone.now()
         t2 = Task.objects.create(name='bar', eta=eta, status=Task.RETRY)
-        self.assertEqual(repr(t2), '<Task bar #{} {} retry>'.format(t2.pk, eta))
+        self.assertEqual(repr(t2), f'<Task bar #{t2.pk} {eta} retry>')
 
     def test_transaction(self):
         with self.assertRaises(TaskTransactionError):
@@ -160,7 +159,7 @@ TEST_TASK_PATH = import_path(test_task)
 
 
 class SimpleRunnerTest(TransactionTestCase):
-    def _connect_handlers(self) -> Tuple[mock.Mock, mock.Mock, mock.Mock, mock.Mock]:
+    def _connect_handlers(self):
         started, succeed, failed, retry = mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock()
 
         signals.task_started.connect(started)
@@ -170,12 +169,12 @@ class SimpleRunnerTest(TransactionTestCase):
 
         return started, succeed, failed, retry
 
-    def _assert_signals_called(self, *handlers: mock.Mock) -> None:
+    def _assert_signals_called(self, *handlers):
         for handler in handlers:
             handler.assert_called_once()
             self.assertGreaterEqual(set(handler.call_args[1].keys()), signals.task_signal_args)
 
-    def _assert_signals_not_called(self, *handlers: mock.Mock) -> None:
+    def _assert_signals_not_called(self, *handlers):
         for handler in handlers:
             handler.assert_not_called()
 

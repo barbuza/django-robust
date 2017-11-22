@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, List
 
 from django.conf import settings
 from django.core.signals import setting_changed
@@ -11,7 +11,7 @@ from .signals import task_started
 
 
 @receiver(signal=models.signals.pre_save, sender=Task)
-def task_fields_defaults(instance: Task, **kwargs) -> None:
+def task_fields_defaults(instance: Task, **_kwargs: Any) -> None:
     if instance.payload is None:
         instance.payload = {}
     if instance.tags is None:
@@ -19,7 +19,7 @@ def task_fields_defaults(instance: Task, **kwargs) -> None:
 
 
 @receiver(signal=models.signals.post_save, sender=Task)
-def create_log_record(instance: Task, created: bool, **kwargs) -> None:
+def create_log_record(instance: Task, created: bool, **_kwargs: Any) -> None:
     if getattr(settings, 'ROBUST_LOG_EVENTS', True):
         instance.events.create(
             status=instance.status,
@@ -34,7 +34,7 @@ def _notify_change() -> None:
 
 
 @receiver(signal=models.signals.post_save, sender=Task)
-def notify_change(instance: Task, **kwargs) -> None:
+def notify_change(instance: Task, **_kwargs: Any) -> None:
     if instance.status in (Task.PENDING, Task.RETRY):
         if connection.in_atomic_block:
             on_commit_task = (set(connection.savepoint_ids), _notify_change)
@@ -45,7 +45,7 @@ def notify_change(instance: Task, **kwargs) -> None:
 
 
 @receiver(signal=task_started)
-def update_ratelimit(tags: List[str], **kwargs) -> None:
+def update_ratelimit(tags: List[str], **_kwargs: Any) -> None:
     if tags:
         runtime = timezone.now()
         RateLimitRun.objects.using('robust_ratelimit').bulk_create(
@@ -54,6 +54,6 @@ def update_ratelimit(tags: List[str], **kwargs) -> None:
 
 
 @receiver(signal=setting_changed)
-def reset_query_cache(setting: str, **kwargs) -> None:
+def reset_query_cache(setting: str, **_kwargs: Any) -> None:
     if setting == 'ROBUST_RATE_LIMIT':
-        TaskManager.reset_query_cache()
+        TaskManager._reset_query_cache()

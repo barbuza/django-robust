@@ -12,3 +12,4 @@ __pycache__
 /.cache
 /.eggs
 /.coverage.*
+/.mypy_cache

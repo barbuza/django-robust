@@ -6,6 +6,6 @@ __all__ = ('RobustConfig',)
 class RobustConfig(AppConfig):
     name = 'robust'
 
-    def ready(self):
+    def ready(self) -> None:
         # noinspection PyUnresolvedReferences
         from . import receivers  # NOQA

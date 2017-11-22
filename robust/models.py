@@ -2,9 +2,11 @@ import copy
 import sys
 import threading
 import traceback
+from datetime import datetime, timedelta
+from typing import Iterable, List, Optional, cast
 
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField, ArrayField
+from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import connection, models
 from django.utils import timezone
 
@@ -12,15 +14,13 @@ from .exceptions import TaskTransactionError
 
 
 class TaskQuerySet(models.QuerySet):
-    def __init__(self, *args, **kwargs):
-        super(TaskQuerySet, self).__init__(*args, **kwargs)
-        self._filter_fails = dict(events__status__in=[Task.RETRY, Task.FAILED])
+    def with_fails(self) -> 'TaskQuerySet':
+        qs = self.filter(events__status__in=Task.TROUBLED_STATUSES).distinct()
+        return cast(TaskQuerySet, qs)
 
-    def with_fails(self):
-        return self.filter(**self._filter_fails).distinct()
-
-    def without_fails(self):
-        return self.filter(~models.Q(**self._filter_fails)).distinct()
+    def without_fails(self) -> 'TaskQuerySet':
+        qs = self.exclude(events__status__in=Task.TROUBLED_STATUSES).distinct()
+        return cast(TaskQuerySet, qs)
 
 
 class TaskManager(models.Manager):
@@ -28,17 +28,17 @@ class TaskManager(models.Manager):
     _query_cache = None
     _query_limits = None
 
-    def get_queryset(self):
+    def get_queryset(self) -> 'TaskQuerySet':
         return TaskQuerySet(self.model, using=self._db)
 
     @classmethod
-    def reset_query_cache(cls):
+    def _reset_query_cache(cls) -> None:
         with cls._query_cache_lock:
             cls._query_cache = None
             cls._params_cache = None
 
     @classmethod
-    def _compile_query(cls):
+    def _compile_query(cls) -> None:
         rate_limit = getattr(settings, 'ROBUST_RATE_LIMIT', None)
         if rate_limit:
             array_items = ['''
@@ -75,7 +75,7 @@ class TaskManager(models.Manager):
         cls._query_limits = copy.deepcopy(rate_limit)
 
     @classmethod
-    def _query_params(cls, limit):
+    def _query_params(cls, limit: int) -> list:
         runtime = timezone.now()
         params = [Task.PENDING, Task.RETRY, runtime]
         rate_limit = cls._query_limits
@@ -87,12 +87,9 @@ class TaskManager(models.Manager):
         params.append(limit)
         return params
 
-    def next(self, limit=1):
+    def next(self, limit: int = 1) -> List['Task']:
         """
         lock and return next {limit} unlocked tasks
-
-        :type limit: int
-        :rtype: list[Task]
         """
         if not connection.in_atomic_block:
             raise TaskTransactionError('Task.objects.next() must be used inside transaction')
@@ -113,6 +110,8 @@ class Task(models.Model):
     SUCCEED = 2
     FAILED = 3
 
+    TROUBLED_STATUSES = [RETRY, FAILED]
+
     STATUS_CHOICES = [
         (PENDING, 'pending'),
         (RETRY, 'retry'),
@@ -132,22 +131,19 @@ class Task(models.Model):
 
     objects = TaskManager()
 
-    def _format_traceback(self):
+    def _format_traceback(self) -> Optional[str]:
         etype, value, tb = sys.exc_info()
         try:
-            if etype:
+            if etype and value and tb:
                 return ''.join(traceback.format_exception(etype, value, tb))
             return None
         finally:
             del tb
 
-    def mark_retry(self, eta=None, delay=None, trace=None):
+    def mark_retry(self, eta: Optional[datetime] = None, delay: Optional[timedelta] = None,
+                   trace: Optional[str] = None) -> None:
         """
         mark task for retry with given {eta} or {delay}
-
-        :type eta: datetime.datetime
-        :type delay: datetime.timedelta
-        :type trace: str
         """
         if delay is not None:
             eta = timezone.now() + delay
@@ -156,7 +152,7 @@ class Task(models.Model):
         self.traceback = trace
         self.save(update_fields={'eta', 'status', 'traceback', 'retries', 'updated_at'})
 
-    def mark_succeed(self):
+    def mark_succeed(self) -> None:
         """
         mark task as succeed
         """
@@ -164,7 +160,7 @@ class Task(models.Model):
         self.traceback = None
         self.save(update_fields={'status', 'traceback', 'updated_at'})
 
-    def mark_failed(self):
+    def mark_failed(self) -> None:
         """
         mark task as failed
         """
@@ -173,11 +169,9 @@ class Task(models.Model):
         self.save(update_fields={'status', 'traceback', 'updated_at'})
 
     @property
-    def log(self):
+    def log(self) -> str:
         """
         task log
-
-        :rtype str
         """
         items = []
         for idx, event in enumerate(self.log_events):
@@ -185,20 +179,20 @@ class Task(models.Model):
                 action = 'created'
             else:
                 action = event.get_status_display()
-            items.append('{} {}'.format(event.created_at, action))
+            items.append(f'{event.created_at} {action}')
         return '\n'.join(items)
 
     @property
-    def log_events(self):
+    def log_events(self) -> Iterable['TaskEvent']:
         return self.events.order_by('pk')
 
-    def __repr__(self):
-        chunks = [self.name, '#{}'.format(self.pk), self.get_status_display()]
+    def __repr__(self) -> str:
+        chunks = [self.name, f'#{self.pk}', self.get_status_display()]
         if self.eta:
             chunks.insert(2, str(self.eta))
-        return '<Task {}>'.format(' '.join(chunks))
+        return f'<Task {" ".join(chunks)}>'
 
-    __str__ = __unicode__ = __repr__
+    __str__ = __repr__
 
     class Meta:
         index_together = [('status', 'eta')]
