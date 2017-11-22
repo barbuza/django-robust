@@ -1,4 +1,3 @@
-import sys
 from typing import List, Optional, Tuple, cast
 
 from django.contrib import admin, messages
@@ -6,8 +5,8 @@ from django.http import HttpRequest
 from django.utils.safestring import mark_safe
 from django_object_actions import BaseDjangoObjectActions, takes_instance_or_queryset
 from pygments import highlight
-from pygments.formatters import get_formatter_by_name
-from pygments.lexers import get_lexer_by_name
+from pygments.formatters.html import HtmlFormatter
+from pygments.lexers.python import Python3TracebackLexer
 
 from .models import Task, TaskQuerySet
 from .utils import unwrap_payload
@@ -65,11 +64,8 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
         return False
 
     def traceback_code(self, task: Task) -> str:
-        formatter = get_formatter_by_name('html')
-        if sys.version_info.major == 3:
-            lexer = get_lexer_by_name('py3tb')
-        else:
-            lexer = get_lexer_by_name('pytb')
+        formatter = HtmlFormatter()
+        lexer = Python3TracebackLexer()
         style = formatter.get_style_defs('.highlight')
         return mark_safe('<style>{}</style><br/>{}'.format(style, highlight(task.traceback, lexer, formatter)))
 
