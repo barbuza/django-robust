@@ -6,6 +6,7 @@ import time
 from typing import Any, List, Optional, Union
 
 from django.conf import settings
+# noinspection PyProtectedMember
 from django.db import close_old_connections, connection, transaction
 
 from .beat import BeatThread, get_scheduler
@@ -33,8 +34,10 @@ class WorkerLimit:
 
 
 class WorkerThread(threading.Thread):
-    def __init__(self, number: int, runner_cls: type, bulk: int, worker_limit: Optional[WorkerLimit]) -> None:
-        super(WorkerThread, self).__init__(name='WorkerThread-{}'.format(number))
+    def __init__(self, number: int, runner_cls: type, bulk: int,
+                 worker_limit: Optional[WorkerLimit]) -> None:
+        super(WorkerThread, self).__init__(
+            name='WorkerThread-{}'.format(number))
         self.runner_cls = runner_cls
         self.bulk = bulk
         self.worker_limit = worker_limit
@@ -51,7 +54,8 @@ class WorkerThread(threading.Thread):
     def run(self) -> None:
         try:
             notify_timeout = getattr(settings, 'ROBUST_NOTIFY_TIMEOUT', 10)
-            worker_failure_timeout = getattr(settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
+            worker_failure_timeout = getattr(
+                settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
 
             while True:
                 try:
@@ -76,7 +80,8 @@ class WorkerThread(threading.Thread):
                             cursor.execute('LISTEN robust')
 
                         logger.debug('listen for postgres events')
-                        select.select([connection.connection], [], [], notify_timeout)
+                        select.select([connection.connection], [], [],
+                                      notify_timeout)
 
                 except Stop:
                     break
@@ -90,7 +95,8 @@ class WorkerThread(threading.Thread):
             close_old_connections()
 
 
-def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type, beat: bool) -> None:
+def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type,
+               beat: bool) -> None:
     worker_limit = None
     if limit:
         worker_limit = WorkerLimit(limit)

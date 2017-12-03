@@ -17,7 +17,8 @@ def schedule_task(task: str, tags: List[str]) -> None:
 
 def get_scheduler() -> Scheduler:
     from .utils import TaskWrapper
-    schedule_list: List[Tuple[timedelta, str]] = getattr(settings, 'ROBUST_SCHEDULE', None)
+    schedule_list: List[Tuple[timedelta, str]] = \
+        getattr(settings, 'ROBUST_SCHEDULE', None)
     if not schedule_list:
         raise RuntimeError("can't run beat with empty schedule")
 
@@ -25,7 +26,8 @@ def get_scheduler() -> Scheduler:
 
     for interval, task in schedule_list:
         task_cls: Type[TaskWrapper] = import_string(task)
-        if not isinstance(task_cls, type) or not issubclass(task_cls, TaskWrapper):
+        if not isinstance(task_cls, type) or \
+                not issubclass(task_cls, TaskWrapper):
             raise RuntimeError('{} is not decorated with @task'.format(task))
 
         # noinspection PyUnresolvedReferences
@@ -50,7 +52,8 @@ class BeatThread(threading.Thread):
                     break
         finally:
             # noinspection PyProtectedMember
-            if not isinstance(threading.current_thread(), cast(Any, threading)._MainThread):
+            if not isinstance(threading.current_thread(),
+                              cast(Any, threading)._MainThread):
                 close_old_connections()
 
 

@@ -12,7 +12,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         super(Command, self).add_arguments(parser)
-        parser.add_argument('--concurrency', default=multiprocessing.cpu_count(), type=int)
+        parser.add_argument('--concurrency',
+                            default=multiprocessing.cpu_count(), type=int)
         parser.add_argument('--bulk', default=1, type=int)
         parser.add_argument('--limit', default=None, type=int)
         parser.add_argument('--runner', default='robust.runners.SimpleRunner')

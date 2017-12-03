@@ -3,10 +3,11 @@ import sys
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, Callable, ClassVar, List, Optional, Type
+import inspect
 
 from django.conf import settings
 from django.utils import timezone
-from django.utils.inspect import getargspec
+# from django.utils.inspect import getargspec
 from django.utils.module_loading import import_string
 
 import robust
@@ -14,7 +15,8 @@ from .exceptions import Retry as BaseRetry
 
 
 def get_kwargs_processor_cls() -> Type['PayloadProcessor']:
-    processor_cls_path = getattr(settings, 'ROBUST_PAYLOAD_PROCESSOR', 'robust.utils.PayloadProcessor')
+    processor_cls_path = getattr(settings, 'ROBUST_PAYLOAD_PROCESSOR',
+                                 'robust.utils.PayloadProcessor')
     return import_string(processor_cls_path)
 
 
@@ -37,7 +39,8 @@ class PayloadProcessor:
 
 
 class ArgsWrapper:
-    def __init__(self, wrapper: Type['TaskWrapper'], eta: Optional[datetime] = None,
+    def __init__(self, wrapper: Type['TaskWrapper'],
+                 eta: Optional[datetime] = None,
                  delay: Optional[timedelta] = None) -> None:
         self.wrapper = wrapper
 
@@ -50,7 +53,8 @@ class ArgsWrapper:
         self.eta = eta
 
     def delay(self, *args: Any, **kwargs: Any) -> 'robust.models.Task':
-        return self.wrapper.delay_with_task_kwargs({'eta': self.eta}, *args, **kwargs)
+        return self.wrapper.delay_with_task_kwargs({'eta': self.eta},
+                                                   *args, **kwargs)
 
 
 class TaskWrapper:
@@ -71,25 +75,28 @@ class TaskWrapper:
         return ArgsWrapper(cls, eta=eta, delay=delay)
 
     @classmethod
-    def delay_with_task_kwargs(cls, _task_kwargs: dict, *args: Any, **kwargs: Any) -> 'robust.models.Task':
+    def delay_with_task_kwargs(cls, _task_kwargs: dict, *args: Any,
+                               **kwargs: Any) -> 'robust.models.Task':
         name = '{}.{}'.format(cls.__module__, cls.__name__)
 
         if args:
-            fn_args, _, _, _ = getargspec(cls.fn)
+            fn_args: List[inspect.Parameter] = list(inspect.signature(cls.fn)
+                                                    .parameters.values())
             if cls.bind:
                 fn_args = fn_args[1:]
 
             if len(args) > len(fn_args):
-                raise TypeError('wrong args number passed for {}'.format(name))
+                raise TypeError(f'wrong args number passed for {name}')
 
             positional = fn_args[:len(args)]
-            for key in positional:
-                if key in kwargs:
-                    raise TypeError('{} used as positional argument for {}'.format(key, name))
+            for arg in positional:
+                if arg.name in kwargs:
+                    raise TypeError(f'{arg.name} used as positional '
+                                    f'argument for {name}')
 
             kwargs = dict(kwargs)
-            for key, value in zip(fn_args, args):
-                kwargs[key] = value
+            for arg, value in zip(fn_args, args):
+                kwargs[arg.name] = value
 
         wrapped_kwargs = wrap_payload(kwargs)
 
@@ -106,21 +113,16 @@ class TaskWrapper:
             'retries': cls.retries
         }
         _kwargs.update(_task_kwargs)
-        return Task.objects.create(name=name, payload=wrapped_kwargs, **_kwargs)
+        return Task.objects.create(name=name, payload=wrapped_kwargs,
+                                   **_kwargs)
 
     @classmethod
     def delay(cls, *args: Any, **kwargs: Any) -> 'robust.models.Task':
-        """
-        :rtype robust.models.Task
-        """
         return cls.delay_with_task_kwargs({}, *args, **kwargs)
 
     @classmethod
-    def retry(cls, eta: Optional[datetime] = None, delay: Optional[timedelta] = None) -> None:
-        """
-        :type eta: datetime
-        :type delay: timedelta
-        """
+    def retry(cls, eta: Optional[datetime] = None,
+              delay: Optional[timedelta] = None) -> None:
         etype, value, tb = sys.exc_info()
         trace = None
         if etype and value and tb:
@@ -132,7 +134,8 @@ class TaskWrapper:
 
 
 def task(bind: bool = False, tags: Optional[List[str]] = None,
-         retries: Optional[int] = None) -> Callable[['function'], Type[TaskWrapper]]:
+         retries: Optional[int] = None) \
+        -> Callable[['function'], Type[TaskWrapper]]:
     def decorator(fn: 'function') -> Type[TaskWrapper]:
         retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
         retry_cls.__module__ = fn.__module__
@@ -155,8 +158,10 @@ def task(bind: bool = False, tags: Optional[List[str]] = None,
 def cleanup() -> None:
     from .models import Task
     now = timezone.now()
-    succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE', timedelta(hours=1))
-    troubled_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE', timedelta(weeks=1))
+    succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE',
+                                        timedelta(hours=1))
+    troubled_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE',
+                                         timedelta(weeks=1))
 
     Task.objects \
         .filter(events__status__in={Task.FAILED, Task.RETRY},

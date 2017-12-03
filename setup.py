@@ -21,13 +21,5 @@ setup(
         'django-object-actions',
         'schedule',
         'pygments'
-    ],
-    setup_requires=['pytest-runner'],
-    tests_require=[
-        'pytest',
-        'pytest-sugar',
-        'pytest-django',
-        'pytest-cov',
-        'colorlog',
     ]
 )

@@ -3,7 +3,9 @@ from typing import List, Optional, Tuple, cast
 from django.contrib import admin, messages
 from django.http import HttpRequest
 from django.utils.safestring import mark_safe
-from django_object_actions import BaseDjangoObjectActions, takes_instance_or_queryset
+from django_object_actions import (
+    BaseDjangoObjectActions, takes_instance_or_queryset,
+)
 from pygments import highlight
 from pygments.formatters.html import HtmlFormatter
 from pygments.lexers.python import Python3TracebackLexer
@@ -18,13 +20,15 @@ class TaskEventsFilter(admin.SimpleListFilter):
 
     title = parameter_name = 'events'
 
-    def lookups(self, request: HttpRequest, model_admin: 'TaskAdmin') -> List[Tuple[str, str]]:
+    def lookups(self, request: HttpRequest, model_admin: 'TaskAdmin') \
+            -> List[Tuple[str, str]]:
         return [
             (self.SUCCEED, 'Succeed'),
             (self.TROUBLED, 'Troubled'),
         ]
 
-    def queryset(self, request: HttpRequest, queryset: TaskQuerySet) -> TaskQuerySet:
+    def queryset(self, request: HttpRequest, queryset: TaskQuerySet) \
+            -> TaskQuerySet:
         if self.value() == self.TROUBLED:
             queryset = queryset.with_fails()
         elif self.value() == self.SUCCEED:
@@ -39,8 +43,10 @@ class ModelAdminMethodField:
 
 @admin.register(Task)
 class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
-    list_display = ('name', 'payload_unwraped', 'status', 'created_at', 'updated_at')
-    fields = readonly_fields = ('status', 'name', 'payload', 'tags', 'eta', 'traceback_code')
+    list_display = ('name', 'payload_unwraped', 'status', 'created_at',
+                    'updated_at')
+    fields = readonly_fields = ('status', 'name', 'payload', 'tags', 'eta',
+                                'traceback_code')
     list_filter = (TaskEventsFilter, 'status')
     search_fields = ('name',)
     change_actions = actions = ('retry',)
@@ -57,7 +63,8 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
         del actions['delete_selected']
         return actions
 
-    def has_delete_permission(self, request: HttpRequest, obj: Optional[Task] = None) -> bool:
+    def has_delete_permission(self, request: HttpRequest,
+                              obj: Optional[Task] = None) -> bool:
         return False
 
     def has_add_permission(self, request: HttpRequest) -> bool:
@@ -67,7 +74,8 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
         formatter = HtmlFormatter()
         lexer = Python3TracebackLexer()
         style = formatter.get_style_defs('.highlight')
-        return mark_safe('<style>{}</style><br/>{}'.format(style, highlight(task.traceback, lexer, formatter)))
+        return mark_safe('<style>{}</style><br/>{}'.format(
+            style, highlight(task.traceback, lexer, formatter)))
 
     @takes_instance_or_queryset
     def retry(self, request: HttpRequest, qs: TaskQuerySet) -> None:

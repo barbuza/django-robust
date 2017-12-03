@@ -7,7 +7,8 @@ class TaskTransactionError(Exception):
 
 
 class Retry(Exception):
-    def __init__(self, eta: Optional[datetime] = None, delay: Optional[timedelta] = None,
+    def __init__(self, eta: Optional[datetime] = None,
+                 delay: Optional[timedelta] = None,
                  trace: Optional[str] = None) -> None:
         super(Retry, self).__init__()
         self.eta = eta

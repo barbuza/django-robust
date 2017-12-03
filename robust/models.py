@@ -49,27 +49,28 @@ class TaskManager(models.Manager):
                   ELSE NULL END)
             '''] * len(rate_limit)
 
-            ratelimit_query = '''
-            SELECT array_remove(ARRAY[{}], NULL)
-            FROM {} WHERE created_at >= %s
-            '''.format(','.join(array_items), RateLimitRun._meta.db_table)
+            ratelimit_query = f'''
+            SELECT array_remove(ARRAY[{", ".join(array_items)}], NULL)
+            FROM {RateLimitRun._meta.db_table} WHERE created_at >= %s
+            '''
 
-            query = '''
-            SELECT * FROM {}
-            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s) AND NOT tags && ({})
-            ORDER BY {}
+            query = f'''
+            SELECT * FROM {Task._meta.db_table}
+            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s)
+              AND NOT tags && ({ratelimit_query})
+            ORDER BY {Task._meta.pk.name}
             LIMIT %s
             FOR UPDATE SKIP LOCKED
-            '''.format(Task._meta.db_table, ratelimit_query, Task._meta.pk.name)
+            '''
 
         else:
-            query = '''
-            SELECT * FROM {}
+            query = f'''
+            SELECT * FROM {Task._meta.db_table}
             WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s)
-            ORDER BY {}
+            ORDER BY {Task._meta.pk.name}
             LIMIT %s
             FOR UPDATE SKIP LOCKED
-            '''.format(Task._meta.db_table, Task._meta.pk.name)
+            '''
 
         cls._query_cache = query
         cls._query_limits = copy.deepcopy(rate_limit)
@@ -92,7 +93,8 @@ class TaskManager(models.Manager):
         lock and return next {limit} unlocked tasks
         """
         if not connection.in_atomic_block:
-            raise TaskTransactionError('Task.objects.next() must be used inside transaction')
+            raise TaskTransactionError('Task.objects.next() must be used '
+                                       'inside transaction')
 
         with self._query_cache_lock:
             if not self._query_cache:
@@ -119,7 +121,8 @@ class Task(models.Model):
         (FAILED, 'failed')
     ]
 
-    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, db_index=True, default=PENDING)
+    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES,
+                                              db_index=True, default=PENDING)
     retries = models.IntegerField(null=True)
     name = models.TextField()
     tags = ArrayField(models.TextField())
@@ -140,7 +143,8 @@ class Task(models.Model):
         finally:
             del tb
 
-    def mark_retry(self, eta: Optional[datetime] = None, delay: Optional[timedelta] = None,
+    def mark_retry(self, eta: Optional[datetime] = None,
+                   delay: Optional[timedelta] = None,
                    trace: Optional[str] = None) -> None:
         """
         mark task for retry with given {eta} or {delay}
@@ -150,7 +154,8 @@ class Task(models.Model):
         self.eta = eta
         self.status = self.RETRY
         self.traceback = trace
-        self.save(update_fields={'eta', 'status', 'traceback', 'retries', 'updated_at'})
+        self.save(update_fields={'eta', 'status', 'traceback', 'retries',
+                                 'updated_at'})
 
     def mark_succeed(self) -> None:
         """
@@ -199,7 +204,8 @@ class Task(models.Model):
 
 
 class TaskEvent(models.Model):
-    task = models.ForeignKey(Task, related_name='events')
+    task = models.ForeignKey(Task, related_name='events',
+                             on_delete=models.CASCADE)
     created_at = models.DateTimeField()
     status = models.PositiveSmallIntegerField(choices=Task.STATUS_CHOICES)
     eta = models.DateTimeField(blank=True, null=True)
