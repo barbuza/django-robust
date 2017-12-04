@@ -4,29 +4,30 @@ import signal
 import threading
 import time
 from datetime import timedelta
-from typing import Any, Callable, Tuple, cast, Optional
+from typing import Any, Tuple, cast, Optional, Union, Type
 from unittest import mock
 
+import django.core.cache
+import django.db
 from django.contrib.auth.models import User
 from django.core.management import call_command
-from django.db import close_old_connections, transaction
+from django.db.transaction import TransactionManagementError
 from django.test import TransactionTestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
+from django_redis.cache import RedisCache
+from redis import StrictRedis
 
-try:
-    from django.urls import reverse
-except ImportError:
-    from django.core.urlresolvers import reverse
-
-from . import signals
-from .admin import TaskEventsFilter
-from .exceptions import Retry, TaskTransactionError
-from .models import RateLimitRun, Task, TaskEvent
-from .runners import SimpleRunner
-from .utils import PayloadProcessor, TaskWrapper, cleanup, task
+from robust import signals
+from robust.admin import TaskEventsFilter
+from robust.exceptions import Retry, TaskTransactionError
+from robust.models import PayloadProcessor, TaskWrapper, cleanup, task, \
+    save_tag_run
+from robust.models import Task, TaskEvent
+from robust.runners import SimpleRunner
 
 
-def import_path(fn: Callable[..., Any]) -> str:
+def import_path(fn: Union['function', Type['TaskWrapper']]) -> str:
     return f'{fn.__module__}.{fn.__name__}'
 
 
@@ -37,11 +38,11 @@ class LockTask(threading.Thread):
         self.exit = threading.Event()
 
     def run(self) -> None:
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             Task.objects.next()
             self.locked.set()
             self.exit.wait(timeout=5)
-        close_old_connections()
+        django.db.close_old_connections()
 
 
 class TaskManagerTest(TransactionTestCase):
@@ -57,6 +58,9 @@ class TaskManagerTest(TransactionTestCase):
         with self.assertRaises(TaskTransactionError):
             Task.objects.next()
 
+        with self.assertRaises(TransactionManagementError):
+            Task.objects.next()
+
     def test_locks(self) -> None:
         t1 = Task.objects.create(name='foo')
         t2 = Task.objects.create(name='bar')
@@ -70,7 +74,7 @@ class TaskManagerTest(TransactionTestCase):
 
         l2.start()
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             l1.locked.wait(timeout=5)
             l2.locked.wait(timeout=5)
             self.assertSequenceEqual(Task.objects.next(limit=10), [])
@@ -88,7 +92,7 @@ class TaskManagerTest(TransactionTestCase):
         Task.objects.create(name='foo',
                             eta=timezone.now() + timedelta(minutes=1))
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             self.assertSequenceEqual(Task.objects.next(limit=10), [t1])
 
     def test_retry(self) -> None:
@@ -111,14 +115,14 @@ class TaskManagerTest(TransactionTestCase):
             delta=5
         )
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             self.assertSequenceEqual(Task.objects.next(limit=10), [t1, t2])
 
     def test_succeed_and_failed(self) -> None:
         for i in range(10):
             Task.objects.create(name='foo')
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             for idx, t in enumerate(Task.objects.next(limit=10)):
                 if idx % 2:
                     t.mark_succeed()
@@ -127,7 +131,7 @@ class TaskManagerTest(TransactionTestCase):
                     t.mark_failed()
                     self.assertEqual(t.status, Task.FAILED)
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             self.assertSequenceEqual(Task.objects.next(limit=10), [])
 
     def test_log_events(self) -> None:
@@ -145,9 +149,8 @@ class TaskManagerTest(TransactionTestCase):
 
         self.assertEqual(
             t1.log,
-            '{} created\n{} retry\n{} succeed'.format(
-                t1.created_at, retry_at, t1.updated_at
-            )
+            f'{t1.created_at} created\n{retry_at} '
+            f'retry\n{t1.updated_at} succeed'
         )
 
         with override_settings(ROBUST_LOG_EVENTS=False):
@@ -251,7 +254,7 @@ class WorkerTest(TransactionTestCase):
 
         call_command('robust_worker', limit=10)
 
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             self.assertSequenceEqual(Task.objects.next(limit=10), [t3])
 
     def test_bulk(self) -> None:
@@ -296,25 +299,33 @@ class WorkerTest(TransactionTestCase):
     'bar': (10, timedelta(minutes=1))
 })
 class RateLimitTest(TransactionTestCase):
+    available_apps = ['robust']
+
+    client: StrictRedis
+
     def setUp(self) -> None:
         Task.objects.all().delete()
-        RateLimitRun.objects.all().delete()
+        cache: RedisCache = django.core.cache.caches['robust']
+        self.client = cast(StrictRedis, cache.client.get_client())
+        self.client.flushall()
 
     def test_create(self) -> None:
         t1 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo'])
         t2 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
+        t3 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
+        t4 = Task.objects.create(name=TEST_TASK_PATH, tags=['bar'])
         SimpleRunner(t1).run()
         SimpleRunner(t2).run()
-        self.assertEqual(RateLimitRun.objects.using('robust_ratelimit')
-                         .count(), 3)
-        self.assertSetEqual(set(RateLimitRun.objects.values_list('tag',
-                                                                 flat=True)),
-                            {'foo', 'bar'})
+        SimpleRunner(t3).run()
+        SimpleRunner(t4).run()
+
+        self.assertEqual(self.client.llen('robust_tag_foo'), 1)
+        self.assertEqual(self.client.llen('robust_tag_bar'), 3)
 
     def _run_in_background(self, started: threading.Event,
                            done: threading.Event) -> None:
         try:
-            with transaction.atomic():
+            with django.db.transaction.atomic():
                 t = Task.objects.next(limit=1)[0]
                 runner = SimpleRunner(t)
 
@@ -325,10 +336,10 @@ class RateLimitTest(TransactionTestCase):
                     runner.run()
                     done.wait(timeout=5)
         finally:
-            close_old_connections()
+            django.db.close_old_connections()
 
     def test_detached(self) -> None:
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             Task.objects.create(name=TEST_TASK_PATH, tags=['slow'])
 
         started = threading.Event()
@@ -336,48 +347,61 @@ class RateLimitTest(TransactionTestCase):
 
         thread = threading.Thread(target=self._run_in_background,
                                   args=[started, done])
-        thread.start()
-        started.wait(timeout=5)
+        with override_settings(ROBUST_RATE_LIMIT={
+            'slow': (1, timedelta(seconds=10)),
+        }):
+            thread.start()
+            started.wait(timeout=5)
 
-        self.assertEqual(RateLimitRun.objects.count(), 1)
+        try:
+            self.assertEqual(self.client.llen('robust_tag_slow'), 1)
+            self.assertEqual(self.client.keys('robust_tag_*'),
+                             [b'robust_tag_slow'])
 
-        done.set()
-        thread.join()
+        finally:
+            done.set()
+            thread.join()
 
     def test_limit(self) -> None:
-        with transaction.atomic():
-            runtime = timezone.now()
+        with django.db.transaction.atomic():
+            runtime = timezone.now().replace(microsecond=0)
             Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
-            RateLimitRun.objects.bulk_create([
-                RateLimitRun(tag='foo', created_at=runtime),
-                RateLimitRun(tag='bar', created_at=runtime),
-                RateLimitRun(tag='bar', created_at=runtime)
-            ])
             t1 = Task.objects.create(name=TEST_TASK_PATH, tags=['bar', 'spam'])
-            t2 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo'])
+            Task.objects.create(name=TEST_TASK_PATH, tags=['foo'])
+            save_tag_run('foo', runtime)
+            save_tag_run('bar', runtime)
+            save_tag_run('bar', runtime)
 
-        with transaction.atomic():
-            with override_settings(ROBUST_RATE_LIMIT={
-                'foo': (1, timedelta(minutes=1)),
-                'bar': (10, timedelta(minutes=1))
-            }):
-                self.assertSequenceEqual(Task.objects.next(limit=10), [t1])
+        with django.db.transaction.atomic():
+            self.assertSequenceEqual(Task.objects.next(limit=2), [t1])
 
-        with transaction.atomic():
-            with override_settings(ROBUST_RATE_LIMIT={
-                'foo': (3, timedelta(minutes=1)),
-                'bar': (2, timedelta(minutes=1))
-            }):
-                self.assertSequenceEqual(Task.objects.next(limit=10), [t2])
+    @override_settings(ROBUST_RATE_LIMIT={
+        'foo': (2, timedelta(minutes=1)),
+        'bar': (10, timedelta(minutes=1)),
+        'eggs': (1, timedelta(minutes=1)),
+    })
+    def test_limit_2(self) -> None:
+        with django.db.transaction.atomic():
+            runtime = timezone.now().replace(microsecond=0)
+            t1 = Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'bar'])
+            t2 = Task.objects.create(name=TEST_TASK_PATH, tags=['bar', 'spam'])
+            Task.objects.create(name=TEST_TASK_PATH, tags=['foo', 'eggs'])
+            save_tag_run('foo', runtime)
+            save_tag_run('bar', runtime)
+            save_tag_run('bar', runtime)
+            save_tag_run('eggs', runtime)
+
+        with django.db.transaction.atomic():
+            self.assertSequenceEqual(Task.objects.next(limit=10), [t1, t2])
 
 
 @task()
-def foo_task(spam: Any=None) -> Any:
+def foo_task(spam: Any = None) -> Any:
     return spam or 'bar'
 
 
 @task(bind=True, tags=['foo', 'bar'])
-def bound_task(self: TaskWrapper, retry: bool=False) -> TaskWrapper:
+def bound_task(self: TaskWrapper, retry: bool = False) -> TaskWrapper:
     if retry:
         self.retry()
     return self
@@ -414,11 +438,13 @@ class TaskDecoratorTest(TransactionTestCase):
         self.assertEqual(Task.objects.filter(retries=1).count(), 1)
 
 
+# noinspection PyUnusedLocal
 @task()
 def args_task(a: Any, b: Any, c: Any) -> None:
     pass
 
 
+# noinspection PyUnusedLocal
 @task(bind=True)
 def bound_args_task(self: TaskWrapper, a: Any, b: Any, c: Any) -> None:
     pass
@@ -491,7 +517,7 @@ class EagerModeTest(TransactionTestCase):
 )
 class CleanupTest(TransactionTestCase):
     def _create_task(self, name: str, status: int,
-                     updated_timedelta: Optional[timedelta]=None) -> Task:
+                     updated_timedelta: Optional[timedelta] = None) -> Task:
         t = Task.objects.create(name=name, status=status)
         if updated_timedelta:
             self._set_update_at(t.pk, updated_timedelta)
@@ -588,15 +614,15 @@ class AdminTest(TransactionTestCase):
         self.assertEqual(response.status_code, 200)
 
         content = response.content.decode('utf-8')
-        self.assertIn('?status__exact={}'.format(Task.PENDING), content)
-        self.assertIn('?status__exact={}'.format(Task.FAILED), content)
-        self.assertIn('?status__exact={}'.format(Task.SUCCEED), content)
-        self.assertIn('?status__exact={}'.format(Task.RETRY), content)
-        self.assertIn('?events={}'.format(TaskEventsFilter.SUCCEED), content)
-        self.assertIn('?events={}'.format(TaskEventsFilter.TROUBLED), content)
+        self.assertIn(f'?status__exact={Task.PENDING}', content)
+        self.assertIn(f'?status__exact={Task.FAILED}', content)
+        self.assertIn(f'?status__exact={Task.SUCCEED}', content)
+        self.assertIn(f'?status__exact={Task.RETRY}', content)
+        self.assertIn(f'?events={TaskEventsFilter.SUCCEED}', content)
+        self.assertIn(f'?events={TaskEventsFilter.TROUBLED}', content)
 
         response = self.client.get(
-            self.list_url + '?status__exact={}'.format(Task.PENDING))
+            self.list_url + f'?status__exact={Task.PENDING}')
         self.assertEqual(response.status_code, 200)
 
         content = response.content.decode('utf-8')
@@ -604,7 +630,7 @@ class AdminTest(TransactionTestCase):
         self.assertNotIn(self.task_url(self.t2), content)
 
         response = self.client.get(
-            self.list_url + '?status__exact={}'.format(Task.RETRY))
+            self.list_url + f'?status__exact={Task.RETRY}')
         self.assertEqual(response.status_code, 200)
 
         content = response.content.decode('utf-8')
@@ -612,11 +638,11 @@ class AdminTest(TransactionTestCase):
         self.assertIn(self.task_url(self.t2), content)
 
         response = self.client.get(
-            self.list_url + '?events={}'.format(TaskEventsFilter.SUCCEED))
+            self.list_url + f'?events={TaskEventsFilter.SUCCEED}')
         self.assertEqual(response.status_code, 200)
 
         response = self.client.get(
-            self.list_url + '?events={}'.format(TaskEventsFilter.TROUBLED))
+            self.list_url + f'?events={TaskEventsFilter.TROUBLED}')
         self.assertEqual(response.status_code, 200)
 
     def test_details_page(self) -> None:
@@ -712,7 +738,9 @@ class FakeProcessor(PayloadProcessor):
         return payload
 
 
-@override_settings(ROBUST_PAYLOAD_PROCESSOR='robust.tests.FakeProcessor')
+@override_settings(
+    ROBUST_PAYLOAD_PROCESSOR='robust.tests.test_basic.FakeProcessor'
+)
 class TestPayloadProcessor(TransactionTestCase):
     def test_wrap(self) -> None:
         foo_task.delay()
@@ -802,7 +830,7 @@ class NotifyTest(TransactionTestCase):
         notify_mock.assert_has_calls([notify_mock(), notify_mock()])
 
     def test_notify_once_per_transaction(self) -> None:
-        with transaction.atomic():
+        with django.db.transaction.atomic():
             with mock.patch('robust.receivers._notify_change') as notify_mock:
                 foo_task.delay()
                 foo_task.delay()

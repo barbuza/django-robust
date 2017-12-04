@@ -10,8 +10,7 @@ from pygments import highlight
 from pygments.formatters.html import HtmlFormatter
 from pygments.lexers.python import Python3TracebackLexer
 
-from .models import Task, TaskQuerySet
-from .utils import unwrap_payload
+from .models import Task, TaskQuerySet, unwrap_payload
 
 
 class TaskEventsFilter(admin.SimpleListFilter):

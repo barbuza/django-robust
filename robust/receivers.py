@@ -1,12 +1,11 @@
 from typing import Any, List
 
 from django.conf import settings
-from django.core.signals import setting_changed
 from django.db import connection, models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import RateLimitRun, Task, TaskManager
+from .models import Task, save_tag_run
 from .signals import task_started
 
 
@@ -48,12 +47,5 @@ def notify_change(instance: Task, **_kwargs: Any) -> None:
 def update_ratelimit(tags: List[str], **_kwargs: Any) -> None:
     if tags:
         runtime = timezone.now()
-        RateLimitRun.objects.using('robust_ratelimit').bulk_create(
-            [RateLimitRun(tag=tag, created_at=runtime) for tag in tags]
-        )
-
-
-@receiver(signal=setting_changed)
-def reset_query_cache(setting: str, **_kwargs: Any) -> None:
-    if setting == 'ROBUST_RATE_LIMIT':
-        TaskManager._reset_query_cache()
+        for tag in tags:
+            save_tag_run(tag, runtime.replace(microsecond=0))

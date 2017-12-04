@@ -16,7 +16,7 @@ def schedule_task(task: str, tags: List[str]) -> None:
 
 
 def get_scheduler() -> Scheduler:
-    from .utils import TaskWrapper
+    from .models import TaskWrapper
     schedule_list: List[Tuple[timedelta, str]] = \
         getattr(settings, 'ROBUST_SCHEDULE', None)
     if not schedule_list:

@@ -5,7 +5,7 @@ from django.utils.module_loading import import_string
 
 from . import models, signals
 from .exceptions import Retry
-from .utils import unwrap_payload
+from .models import unwrap_payload
 
 logger = logging.getLogger(__name__)
 

@@ -4,6 +4,7 @@ python:
 
 services:
 - postgresql
+- redis
 
 addons:
   postgresql: "9.6"
@@ -15,5 +16,4 @@ before_script: createuser -d robust -U postgres
 script: tox
 
 after_script:
-- coverage combine
 - coveralls

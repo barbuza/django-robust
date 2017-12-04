@@ -16,8 +16,10 @@ setup(
     packages=find_packages(exclude=['django_robust', 'dummy']),
     python_requires='>=3.6',
     install_requires=[
-        'django >= 1.9',
+        'django >= 1.11',
         'psycopg2 >= 2.5',
+        'django-redis >= 4.8.0',
+        'redis >= 2.10',
         'django-object-actions',
         'schedule',
         'pygments'

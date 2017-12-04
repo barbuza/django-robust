@@ -1,19 +1,27 @@
-import copy
+import inspect
+import json
+import struct
 import sys
-import threading
 import traceback
 from datetime import datetime, timedelta
-from typing import Iterable, List, Optional, cast
+from typing import Iterable, List, Optional, cast, ClassVar, Callable, Any, \
+    Type, Dict, Tuple
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField, JSONField
+# noinspection PyProtectedMember
+from django.core.cache import caches
 from django.db import connection, models
 from django.utils import timezone
+from django.utils.module_loading import import_string
+from django_redis.cache import RedisCache
+from redis import StrictRedis
 
-from .exceptions import TaskTransactionError
+from .exceptions import TaskTransactionError, Retry as BaseRetry
 
 
 class TaskQuerySet(models.QuerySet):
+
     def with_fails(self) -> 'TaskQuerySet':
         qs = self.filter(events__status__in=Task.TROUBLED_STATUSES).distinct()
         return cast(TaskQuerySet, qs)
@@ -22,88 +30,37 @@ class TaskQuerySet(models.QuerySet):
         qs = self.exclude(events__status__in=Task.TROUBLED_STATUSES).distinct()
         return cast(TaskQuerySet, qs)
 
-
-class TaskManager(models.Manager):
-    _query_cache_lock = threading.Lock()
-    _query_cache = None
-    _query_limits = None
-
-    def get_queryset(self) -> 'TaskQuerySet':
-        return TaskQuerySet(self.model, using=self._db)
-
-    @classmethod
-    def _reset_query_cache(cls) -> None:
-        with cls._query_cache_lock:
-            cls._query_cache = None
-            cls._params_cache = None
-
-    @classmethod
-    def _compile_query(cls) -> None:
-        rate_limit = getattr(settings, 'ROBUST_RATE_LIMIT', None)
-        if rate_limit:
-            array_items = ['''
-                (CASE WHEN
-                  SUM(
-                    CASE WHEN created_at >= %s AND tag = %s THEN 1 ELSE 0 END
-                  ) >= %s THEN %s
-                  ELSE NULL END)
-            '''] * len(rate_limit)
-
-            ratelimit_query = f'''
-            SELECT array_remove(ARRAY[{", ".join(array_items)}], NULL)
-            FROM {RateLimitRun._meta.db_table} WHERE created_at >= %s
-            '''
-
-            query = f'''
-            SELECT * FROM {Task._meta.db_table}
-            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s)
-              AND NOT tags && ({ratelimit_query})
-            ORDER BY {Task._meta.pk.name}
-            LIMIT %s
-            FOR UPDATE SKIP LOCKED
-            '''
-
-        else:
-            query = f'''
-            SELECT * FROM {Task._meta.db_table}
-            WHERE status IN (%s, %s) AND (eta IS NULL OR eta <= %s)
-            ORDER BY {Task._meta.pk.name}
-            LIMIT %s
-            FOR UPDATE SKIP LOCKED
-            '''
-
-        cls._query_cache = query
-        cls._query_limits = copy.deepcopy(rate_limit)
-
-    @classmethod
-    def _query_params(cls, limit: int) -> list:
-        runtime = timezone.now()
-        params = [Task.PENDING, Task.RETRY, runtime]
-        rate_limit = cls._query_limits
-        if rate_limit:
-            for tag, (count, duration) in rate_limit.items():
-                params.extend((runtime - duration, tag, count, tag))
-            window = max([duration for count, duration in rate_limit.values()])
-            params.append(runtime - window)
-        params.append(limit)
-        return params
-
-    def next(self, limit: int = 1) -> List['Task']:
-        """
-        lock and return next {limit} unlocked tasks
-        """
+    def next(self, limit: int = 1,
+             eta: Optional[datetime] = None) -> List['Task']:
         if not connection.in_atomic_block:
             raise TaskTransactionError('Task.objects.next() must be used '
                                        'inside transaction')
 
-        with self._query_cache_lock:
-            if not self._query_cache:
-                self._compile_query()
+        if eta is None:
+            eta = timezone.now()
 
-            query = self._query_cache
-            params = self._query_params(limit)
+        status_cond = models.Q(status__in=[Task.PENDING, Task.RETRY])
+        eta_cond = models.Q(eta=None) | models.Q(eta__lte=eta)
 
-        return list(self.raw(query, params=params))
+        qs = self.select_for_update(skip_locked=True) \
+            .filter(status_cond & eta_cond) \
+            .order_by('pk')
+
+        tasks = list(qs[:limit])
+
+        allowed_tasks: List[Task] = []
+
+        for t in tasks:
+            tags_eta = calc_tags_eta(t.tags)
+            if tags_eta:
+                max_eta = max(tags_eta.values())
+                if max_eta >= cast(datetime, eta):
+                    t.eta = max_eta
+                    t.save(update_fields={'eta'})
+                    continue
+            allowed_tasks.append(t)
+
+        return allowed_tasks
 
 
 class Task(models.Model):
@@ -132,7 +89,7 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = TaskManager()
+    objects = TaskQuerySet.as_manager()
 
     def _format_traceback(self) -> Optional[str]:
         etype, value, tb = sys.exc_info()
@@ -212,6 +169,218 @@ class TaskEvent(models.Model):
     traceback = models.TextField(null=True)
 
 
-class RateLimitRun(models.Model):
-    created_at = models.DateTimeField(db_index=True)
-    tag = models.TextField()
+def get_kwargs_processor_cls() -> Type['PayloadProcessor']:
+    processor_cls_path = getattr(settings, 'ROBUST_PAYLOAD_PROCESSOR',
+                                 'robust.models.PayloadProcessor')
+    return import_string(processor_cls_path)
+
+
+def wrap_payload(payload: dict) -> Any:
+    return get_kwargs_processor_cls().wrap_payload(payload)
+
+
+def unwrap_payload(payload: Any) -> dict:
+    return get_kwargs_processor_cls().unwrap_payload(payload)
+
+
+class PayloadProcessor:
+    @staticmethod
+    def wrap_payload(payload: dict) -> Any:
+        return payload
+
+    @staticmethod
+    def unwrap_payload(payload: Any) -> dict:
+        return payload
+
+
+class ArgsWrapper:
+    def __init__(self, wrapper: Type['TaskWrapper'],
+                 eta: Optional[datetime] = None,
+                 delay: Optional[timedelta] = None) -> None:
+        self.wrapper = wrapper
+
+        if eta and delay:
+            raise RuntimeError('both eta and delay provided')
+
+        if delay:
+            eta = timezone.now() + delay
+
+        self.eta = eta
+
+    def delay(self, *args: Any, **kwargs: Any) -> Task:
+        return self.wrapper.delay_with_task_kwargs({'eta': self.eta},
+                                                   *args, **kwargs)
+
+
+class TaskWrapper:
+    bind: ClassVar[bool]
+    fn: ClassVar[Callable[..., Any]]
+    retries: ClassVar[Optional[int]]
+    tags: ClassVar[List[str]] = []
+    Retry: ClassVar[Type[BaseRetry]]
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        if cls.bind:
+            return cls.fn(cls, *args, **kwargs)
+        return cls.fn(*args, **kwargs)
+
+    @classmethod
+    def with_task_kwargs(cls, eta: Optional[datetime] = None,
+                         delay: Optional[timedelta] = None) -> ArgsWrapper:
+        return ArgsWrapper(cls, eta=eta, delay=delay)
+
+    @classmethod
+    def delay_with_task_kwargs(cls, _task_kwargs: dict, *args: Any,
+                               **kwargs: Any) -> Task:
+        name = '{}.{}'.format(cls.__module__, cls.__name__)
+
+        if args:
+            fn_args: List[inspect.Parameter] = list(inspect.signature(cls.fn)
+                                                    .parameters.values())
+            if cls.bind:
+                fn_args = fn_args[1:]
+
+            if len(args) > len(fn_args):
+                raise TypeError(f'wrong args number passed for {name}')
+
+            positional = fn_args[:len(args)]
+            for arg in positional:
+                if arg.name in kwargs:
+                    raise TypeError(f'{arg.name} used as positional '
+                                    f'argument for {name}')
+
+            kwargs = dict(kwargs)
+            for arg, value in zip(fn_args, args):
+                kwargs[arg.name] = value
+
+        wrapped_kwargs = wrap_payload(kwargs)
+
+        if getattr(settings, 'ROBUST_ALWAYS_EAGER', False):
+            json.dumps(wrapped_kwargs)  # checks kwargs is JSON serializable
+            kwargs = unwrap_payload(wrapped_kwargs)
+            if cls.bind:
+                return cls.fn(cls, **kwargs)
+            return cls.fn(**kwargs)
+
+        _kwargs = {
+            'tags': cls.tags,
+            'retries': cls.retries
+        }
+        _kwargs.update(_task_kwargs)
+        return Task.objects.create(name=name, payload=wrapped_kwargs,
+                                   **_kwargs)
+
+    @classmethod
+    def delay(cls, *args: Any, **kwargs: Any) -> Task:
+        return cls.delay_with_task_kwargs({}, *args, **kwargs)
+
+    @classmethod
+    def retry(cls, eta: Optional[datetime] = None,
+              delay: Optional[timedelta] = None) -> None:
+        etype, value, tb = sys.exc_info()
+        trace = None
+        if etype and value and tb:
+            trace = ''.join(traceback.format_exception(etype, value, tb))
+        try:
+            raise cls.Retry(eta=eta, delay=delay, trace=trace)
+        finally:
+            del tb
+
+
+def task(bind: bool = False, tags: Optional[List[str]] = None,
+         retries: Optional[int] = None) \
+        -> Callable[['function'], Type[TaskWrapper]]:
+    def decorator(fn: 'function') -> Type[TaskWrapper]:
+        retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
+        retry_cls.__module__ = fn.__module__
+
+        task_cls: Type[TaskWrapper] = type(fn.__name__, (TaskWrapper,), {
+            'fn': staticmethod(fn),
+            'retries': retries,
+            'tags': tags,
+            'bind': bind,
+            'Retry': retry_cls
+        })
+        task_cls.__module__ = fn.__module__
+
+        return task_cls
+
+    return decorator
+
+
+def tag_cache_key(tag: str) -> str:
+    return f'robust_tag_{tag}'
+
+
+def calc_tags_eta(tags: List[str]) -> Dict[str, datetime]:
+    if not tags:
+        return {}
+
+    rate_limit_config = getattr(settings, 'ROBUST_RATE_LIMIT', None)
+    if not rate_limit_config:
+        return {}
+
+    configured_tags: Dict[str, Tuple[int, timedelta]] = {}
+    for tag in tags:
+        if tag in rate_limit_config:
+            configured_tags[tag] = rate_limit_config[tag]
+
+    if not configured_tags:
+        return {}
+
+    cache: RedisCache = caches['robust']
+    client: StrictRedis = cache.client.get_client()
+
+    etas: Dict[str, datetime] = {}
+
+    for tag, (count, interval) in configured_tags.items():
+        first_run_ts_bytes = client.lindex(tag_cache_key(tag), count - 1)
+        if first_run_ts_bytes is None:
+            continue
+
+        first_run_ts, = struct.unpack('I', first_run_ts_bytes)
+        first_run = datetime.fromtimestamp(first_run_ts, tz=timezone.utc)
+        next_run = first_run + interval
+        etas[tag] = next_run
+
+    return etas
+
+
+def save_tag_run(tag: str, dt: datetime) -> None:
+    assert dt.tzinfo is timezone.utc
+    assert dt.microsecond is 0
+
+    rate_limit_config = getattr(settings, 'ROBUST_RATE_LIMIT', None)
+    if not rate_limit_config:
+        return None
+    if tag not in rate_limit_config:
+        return None
+
+    cache: RedisCache = caches['robust']
+    client: StrictRedis = cache.client.get_client()
+    cache_key = tag_cache_key(tag)
+
+    pipeline = client.pipeline(transaction=False)
+    pipeline.lpush(cache_key, struct.pack('I', int(dt.timestamp())))
+    pipeline.ltrim(cache_key, 0, rate_limit_config[tag][0] - 1)
+    pipeline.execute()
+
+
+@task()
+def cleanup() -> None:
+    now = timezone.now()
+    succeed_task_expire = now - getattr(settings, 'ROBUST_SUCCEED_TASK_EXPIRE',
+                                        timedelta(hours=1))
+    troubled_task_expire = now - getattr(settings, 'ROBUST_FAILED_TASK_EXPIRE',
+                                         timedelta(weeks=1))
+
+    Task.objects \
+        .filter(events__status__in={Task.FAILED, Task.RETRY},
+                status__in={Task.FAILED, Task.SUCCEED},
+                updated_at__lte=troubled_task_expire) \
+        .delete()
+
+    Task.objects \
+        .exclude(events__status__in={Task.FAILED, Task.RETRY}) \
+        .filter(status=Task.SUCCEED, updated_at__lte=succeed_task_expire) \
+        .delete()

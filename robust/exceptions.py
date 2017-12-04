@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+from django.db.transaction import TransactionManagementError
 
-class TaskTransactionError(Exception):
+
+class TaskTransactionError(TransactionManagementError):
     pass
 
 
