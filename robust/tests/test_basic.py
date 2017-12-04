@@ -18,6 +18,7 @@ from django.utils import timezone
 from django_redis.cache import RedisCache
 from redis import StrictRedis
 
+import robust
 from robust import signals
 from robust.admin import TaskEventsFilter
 from robust.exceptions import Retry, TaskTransactionError
@@ -400,7 +401,7 @@ def foo_task(spam: Any = None) -> Any:
     return spam or 'bar'
 
 
-@task(bind=True, tags=['foo', 'bar'])
+@robust.task(bind=True, tags=['foo', 'bar'])
 def bound_task(self: TaskWrapper, retry: bool = False) -> TaskWrapper:
     if retry:
         self.retry()

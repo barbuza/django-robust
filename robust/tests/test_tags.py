@@ -1,9 +1,11 @@
 from datetime import timedelta
+from typing import cast
 
 from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django_redis.cache import RedisCache
+from redis import StrictRedis
 
 from ..models import calc_tags_eta, save_tag_run
 
@@ -15,10 +17,20 @@ from ..models import calc_tags_eta, save_tag_run
     'eggs': (1, timedelta(days=1))
 })
 class TagsTestCase(SimpleTestCase):
+    client: StrictRedis
 
     def setUp(self) -> None:
         cache: RedisCache = caches['robust']
-        cache.client.get_client().flushall()
+        self.client = cast(StrictRedis, cache.client.get_client())
+        self.client.flushall()
+
+    @override_settings(ROBUST_RATE_LIMIT=None)
+    def test_absent(self) -> None:
+        self.assertDictEqual(calc_tags_eta(['foo', 'bar']), {})
+
+    def test_save_unknown(self) -> None:
+        save_tag_run('unknown', timezone.now().replace(microsecond=0))
+        self.assertListEqual(self.client.keys('*'), [])
 
     def test_calc(self) -> None:
         start = timezone.now().replace(microsecond=0)
