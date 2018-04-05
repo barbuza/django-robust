@@ -10,7 +10,7 @@ setup(
     include_package_data=True,
     packages=find_packages(exclude=['django_robust', 'dummy']),
     install_requires=[
-        'django >= 1.9',
+        'django >= 1.9,<2.0',
         'psycopg2-binary>=2.7.4',
         'django-object-actions',
         'schedule',
