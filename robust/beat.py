@@ -30,9 +30,12 @@ def get_scheduler() -> Scheduler:
                 not issubclass(task_cls, TaskWrapper):
             raise RuntimeError('{} is not decorated with @task'.format(task))
 
-        # noinspection PyUnresolvedReferences
-        scheduler.every(int(interval.total_seconds())) \
-            .seconds.do(schedule_task, task, task_cls.tags)
+        if isinstance(interval, timedelta):
+            # noinspection PyUnresolvedReferences
+            scheduler.every(int(interval.total_seconds())) \
+                .seconds.do(schedule_task, task, task_cls.tags)
+        else:
+            interval(scheduler).do(schedule_task, task, task_cls.tags)
 
     return scheduler
 
