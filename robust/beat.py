@@ -1,6 +1,7 @@
 import signal
 import threading
 import time
+import datetime
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -29,9 +30,12 @@ def get_scheduler():
         if not isinstance(task_cls, type) or not issubclass(task_cls, TaskWrapper):
             raise RuntimeError('{} is not decorated with @task'.format(task))
 
-        # noinspection PyUnresolvedReferences
-        scheduler.every(int(interval.total_seconds())) \
-            .seconds.do(schedule_task, task, task_cls.tags)
+        if isinstance(interval, datetime.timedelta):
+            # noinspection PyUnresolvedReferences
+            scheduler.every(int(interval.total_seconds())) \
+                .seconds.do(schedule_task, task, task_cls.tags)
+        else:
+            interval(scheduler).do(schedule_task, task, task_cls.tags)
 
     return scheduler
 
