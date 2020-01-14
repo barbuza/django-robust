@@ -7,9 +7,10 @@ from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.db import transaction, close_old_connections
-from django.test import TransactionTestCase, override_settings, mock
+from django.test import TransactionTestCase, override_settings
+from unittest import mock
 from django.utils import timezone
 
 from .admin import TaskEventsFilter

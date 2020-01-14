@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.utils import timezone
-from django.utils.inspect import get_func_args
+from inspect import getargspec
 from django.utils.module_loading import import_string
 
 from .exceptions import Retry as BaseRetry
@@ -85,7 +85,7 @@ class TaskWrapper(object):
         name = '{}.{}'.format(cls.__module__, cls.__name__)
 
         if args:
-            fn_args, _, _, _ = get_func_args(cls.fn)
+            fn_args, _, _, _ = getargspec(cls.fn)
             if cls.bind:
                 fn_args = fn_args[1:]
 
