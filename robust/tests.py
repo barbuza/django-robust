@@ -255,6 +255,8 @@ class WorkerTest(TransactionTestCase):
     'bar': (10, timedelta(minutes=1))
 })
 class RateLimitTest(TransactionTestCase):
+    databases = ["default", "robust_ratelimit"]
+
     def setUp(self):
         Task.objects.all().delete()
         RateLimitRun.objects.all().delete()
