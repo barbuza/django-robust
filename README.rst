@@ -1,6 +1,15 @@
 django-robust |Build Status| |Coverage Status| |PyPI Version|
 =============================================================
 
+
+Requirements
+------------
+
+* Python>=3.4,<3.6(*)
+* Django>=1.1.11,<2.2.9LTS
+
+(*) As Python 2.7 is deprecated since 2020
+
 install
 -------
 
