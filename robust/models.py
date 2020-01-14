@@ -205,7 +205,7 @@ class Task(models.Model):
 
 
 class TaskEvent(models.Model):
-    task = models.ForeignKey(Task, related_name='events')
+    task = models.ForeignKey(Task, related_name='events', on_delete=models.CASCADE, null=True)
     created_at = models.DateTimeField()
     status = models.PositiveSmallIntegerField(choices=Task.STATUS_CHOICES)
     eta = models.DateTimeField(blank=True, null=True)
