@@ -23,7 +23,7 @@ class RedisApi:
 
 class Pipeline(RedisApi):
     def execute(self) -> None:
-        pass
+        ...
 
 
 class Redis(RedisApi):
