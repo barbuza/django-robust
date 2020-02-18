@@ -4,8 +4,8 @@ import struct
 import sys
 import traceback
 from datetime import datetime, timedelta
-from typing import Iterable, List, Optional, cast, ClassVar, Callable, Any, \
-    Type, Dict, Tuple
+from typing import Any, Callable, ClassVar, Dict, Iterable, List, Optional,\
+    Tuple, Type, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField, JSONField
@@ -15,9 +15,9 @@ from django.db import connection, models
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django_redis.cache import RedisCache
-from redis import StrictRedis
+from redis import Redis
 
-from .exceptions import TaskTransactionError, Retry as BaseRetry
+from .exceptions import Retry as BaseRetry, TaskTransactionError
 
 
 class TaskQuerySet(models.QuerySet):
@@ -289,8 +289,8 @@ class TaskWrapper:
 
 def task(bind: bool = False, tags: Optional[List[str]] = None,
          retries: Optional[int] = None) \
-        -> Callable[['function'], Type[TaskWrapper]]:
-    def decorator(fn: 'function') -> Type[TaskWrapper]:
+        -> Callable[[Callable[..., None]], Type[TaskWrapper]]:
+    def decorator(fn: Callable[..., None]) -> Type[TaskWrapper]:
         retry_cls = type('{}{}'.format(fn.__name__, 'Retry'), (BaseRetry,), {})
         retry_cls.__module__ = fn.__module__
 
@@ -329,7 +329,7 @@ def calc_tags_eta(tags: List[str]) -> Dict[str, datetime]:
         return {}
 
     cache: RedisCache = caches['robust']
-    client: StrictRedis = cache.client.get_client()
+    client: Redis = cache.client.get_client()
 
     etas: Dict[str, datetime] = {}
 
@@ -348,7 +348,7 @@ def calc_tags_eta(tags: List[str]) -> Dict[str, datetime]:
 
 def save_tag_run(tag: str, dt: datetime) -> None:
     assert dt.tzinfo is timezone.utc
-    assert dt.microsecond is 0
+    assert dt.microsecond == 0
 
     rate_limit_config = getattr(settings, 'ROBUST_RATE_LIMIT', None)
     if not rate_limit_config:
@@ -357,7 +357,7 @@ def save_tag_run(tag: str, dt: datetime) -> None:
         return None
 
     cache: RedisCache = caches['robust']
-    client: StrictRedis = cache.client.get_client()
+    client: Redis = cache.client.get_client()
     cache_key = tag_cache_key(tag)
 
     pipeline = client.pipeline(transaction=False)

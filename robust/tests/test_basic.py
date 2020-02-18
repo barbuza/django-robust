@@ -16,7 +16,7 @@ from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django_redis.cache import RedisCache
-from redis import StrictRedis
+from redis import Redis
 
 import robust
 from robust import signals
@@ -302,12 +302,12 @@ class WorkerTest(TransactionTestCase):
 class RateLimitTest(TransactionTestCase):
     available_apps = ['robust']
 
-    client: StrictRedis
+    client: Redis
 
     def setUp(self) -> None:
         Task.objects.all().delete()
         cache: RedisCache = django.core.cache.caches['robust']
-        self.client = cast(StrictRedis, cache.client.get_client())
+        self.client = cast(Redis, cache.client.get_client())
         self.client.flushall()
 
     def test_create(self) -> None:

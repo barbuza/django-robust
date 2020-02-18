@@ -5,7 +5,7 @@ from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django_redis.cache import RedisCache
-from redis import StrictRedis
+from redis import Redis
 
 from ..models import calc_tags_eta, save_tag_run
 
@@ -17,11 +17,11 @@ from ..models import calc_tags_eta, save_tag_run
     'eggs': (1, timedelta(days=1))
 })
 class TagsTestCase(SimpleTestCase):
-    client: StrictRedis
+    client: Redis
 
     def setUp(self) -> None:
         cache: RedisCache = caches['robust']
-        self.client = cast(StrictRedis, cache.client.get_client())
+        self.client = cast(Redis, cache.client.get_client())
         self.client.flushall()
 
     @override_settings(ROBUST_RATE_LIMIT=None)

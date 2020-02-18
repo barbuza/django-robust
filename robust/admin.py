@@ -59,7 +59,8 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
 
     def get_actions(self, request: HttpRequest) -> List[str]:
         actions = super(TaskAdmin, self).get_actions(request)
-        del actions['delete_selected']
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
         return actions
 
     def has_delete_permission(self, request: HttpRequest,
