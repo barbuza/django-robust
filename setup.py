@@ -7,7 +7,7 @@ if sys.version_info < (3, 6):
 
 setup(
     name='django-robust',
-    version='0.2.1',
+    version='0.3.0',
     description='robust background queue for django',
     author='Victor Kotseruba',
     author_email='barbuzaster@gmail.com',
@@ -16,10 +16,10 @@ setup(
     packages=find_packages(exclude=['django_robust', 'dummy']),
     python_requires='>=3.6',
     install_requires=[
-        'django >= 1.11',
-        'psycopg2 >= 2.5',
-        'django-redis >= 4.8.0',
-        'redis >= 2.10',
+        'django >= 2.0',
+        'psycopg2',
+        'django-redis',
+        'redis',
         'django-object-actions',
         'schedule',
         'pygments'
