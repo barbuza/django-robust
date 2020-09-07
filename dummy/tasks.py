@@ -2,7 +2,7 @@ from robust import task
 
 
 def spam():
-    raise RuntimeError('fail')
+    raise RuntimeError("fail")
 
 
 def bar():

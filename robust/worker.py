@@ -6,6 +6,7 @@ import time
 from typing import Any, List, Optional, Union
 
 from django.conf import settings
+
 # noinspection PyProtectedMember
 from django.db import close_old_connections, connection, transaction
 
@@ -34,10 +35,14 @@ class WorkerLimit:
 
 
 class WorkerThread(threading.Thread):
-    def __init__(self, number: int, runner_cls: type, bulk: int,
-                 worker_limit: Optional[WorkerLimit]) -> None:
-        super(WorkerThread, self).__init__(
-            name='WorkerThread-{}'.format(number))
+    def __init__(
+        self,
+        number: int,
+        runner_cls: type,
+        bulk: int,
+        worker_limit: Optional[WorkerLimit],
+    ) -> None:
+        super(WorkerThread, self).__init__(name="WorkerThread-{}".format(number))
         self.runner_cls = runner_cls
         self.bulk = bulk
         self.worker_limit = worker_limit
@@ -53,9 +58,10 @@ class WorkerThread(threading.Thread):
 
     def run(self) -> None:
         try:
-            notify_timeout = getattr(settings, 'ROBUST_NOTIFY_TIMEOUT', 10)
+            notify_timeout = getattr(settings, "ROBUST_NOTIFY_TIMEOUT", 10)
             worker_failure_timeout = getattr(
-                settings, 'ROBUST_WORKER_FAILURE_TIMEOUT', 5)
+                settings, "ROBUST_WORKER_FAILURE_TIMEOUT", 5
+            )
 
             while True:
                 try:
@@ -64,7 +70,7 @@ class WorkerThread(threading.Thread):
 
                     with transaction.atomic():
                         tasks = Task.objects.next(limit=self.bulk)
-                        logger.debug('%s got tasks %r', self.name, tasks)
+                        logger.debug("%s got tasks %r", self.name, tasks)
                         if self.worker_limit:
                             self.worker_limit.dec(amount=len(tasks))
 
@@ -77,26 +83,26 @@ class WorkerThread(threading.Thread):
 
                     if not tasks:
                         with connection.cursor() as cursor:
-                            cursor.execute('LISTEN robust')
+                            cursor.execute("LISTEN robust")
 
-                        logger.debug('listen for postgres events')
-                        select.select([connection.connection], [], [],
-                                      notify_timeout)
+                        logger.debug("listen for postgres events")
+                        select.select([connection.connection], [], [], notify_timeout)
 
                 except Stop:
                     break
 
                 except Exception:
-                    logger.error('%s exception ', self.name, exc_info=True)
+                    logger.error("%s exception ", self.name, exc_info=True)
                     time.sleep(worker_failure_timeout)
 
-            logger.debug('terminating %s', self.name)
+            logger.debug("terminating %s", self.name)
         finally:
             close_old_connections()
 
 
-def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type,
-               beat: bool) -> None:
+def run_worker(
+    concurrency: int, bulk: int, limit: int, runner_cls: type, beat: bool
+) -> None:
     worker_limit = None
     if limit:
         worker_limit = WorkerLimit(limit)
@@ -118,10 +124,10 @@ def run_worker(concurrency: int, bulk: int, limit: int, runner_cls: type,
         for t in threads:
             t.terminate = True
         with connection.cursor() as cursor:
-            cursor.execute('NOTIFY robust')
+            cursor.execute("NOTIFY robust")
 
     def signal_handler(*_: Any) -> None:
-        logger.warning('terminate worker')
+        logger.warning("terminate worker")
         terminate()
 
     signal.signal(signal.SIGINT, signal_handler)

@@ -12,13 +12,16 @@ from schedule import Scheduler
 
 def schedule_task(task: str, tags: List[str]) -> None:
     from .models import Task
+
     Task.objects.create(name=task, payload={}, tags=tags)
 
 
 def get_scheduler() -> Scheduler:
     from .models import TaskWrapper
-    schedule_list: List[Tuple[timedelta, str]] = \
-        getattr(settings, 'ROBUST_SCHEDULE', None)
+
+    schedule_list: List[Tuple[timedelta, str]] = getattr(
+        settings, "ROBUST_SCHEDULE", None
+    )
     if not schedule_list:
         raise RuntimeError("can't run beat with empty schedule")
 
@@ -26,14 +29,14 @@ def get_scheduler() -> Scheduler:
 
     for interval, task in schedule_list:
         task_cls: Type[TaskWrapper] = import_string(task)
-        if not isinstance(task_cls, type) or \
-                not issubclass(task_cls, TaskWrapper):
-            raise RuntimeError('{} is not decorated with @task'.format(task))
+        if not isinstance(task_cls, type) or not issubclass(task_cls, TaskWrapper):
+            raise RuntimeError("{} is not decorated with @task".format(task))
 
         if isinstance(interval, timedelta):
             # noinspection PyUnresolvedReferences
-            scheduler.every(int(interval.total_seconds())) \
-                .seconds.do(schedule_task, task, task_cls.tags)
+            scheduler.every(int(interval.total_seconds())).seconds.do(
+                schedule_task, task, task_cls.tags
+            )
         else:
             interval(scheduler).do(schedule_task, task, task_cls.tags)
 
@@ -42,7 +45,7 @@ def get_scheduler() -> Scheduler:
 
 class BeatThread(threading.Thread):
     def __init__(self, scheduler: Scheduler) -> None:
-        super(BeatThread, self).__init__(name='Beat')
+        super(BeatThread, self).__init__(name="Beat")
         self.terminate = False
         self.scheduler = scheduler
 
@@ -55,8 +58,9 @@ class BeatThread(threading.Thread):
                     break
         finally:
             # noinspection PyProtectedMember
-            if not isinstance(threading.current_thread(),
-                              cast(Any, threading)._MainThread):
+            if not isinstance(
+                threading.current_thread(), cast(Any, threading)._MainThread
+            ):
                 close_old_connections()
 
 

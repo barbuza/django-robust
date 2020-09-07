@@ -9,9 +9,12 @@ class TaskTransactionError(TransactionManagementError):
 
 
 class Retry(Exception):
-    def __init__(self, eta: Optional[datetime] = None,
-                 delay: Optional[timedelta] = None,
-                 trace: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        eta: Optional[datetime] = None,
+        delay: Optional[timedelta] = None,
+        trace: Optional[str] = None,
+    ) -> None:
         super(Retry, self).__init__()
         self.eta = eta
         self.delay = delay

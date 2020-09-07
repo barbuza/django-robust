@@ -19,17 +19,17 @@ def task_fields_defaults(instance: Task, **_kwargs: Any) -> None:
 
 @receiver(signal=models.signals.post_save, sender=Task)
 def create_log_record(instance: Task, created: bool, **_kwargs: Any) -> None:
-    if getattr(settings, 'ROBUST_LOG_EVENTS', True):
+    if getattr(settings, "ROBUST_LOG_EVENTS", True):
         instance.events.create(
             status=instance.status,
             eta=instance.eta,
-            created_at=instance.created_at if created else instance.updated_at
+            created_at=instance.created_at if created else instance.updated_at,
         )
 
 
 def _notify_change() -> None:
     with connection.cursor() as cursor:
-        cursor.execute('NOTIFY robust')
+        cursor.execute("NOTIFY robust")
 
 
 @receiver(signal=models.signals.post_save, sender=Task)

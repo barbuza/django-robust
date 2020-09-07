@@ -9,4 +9,5 @@ class Command(BaseCommand):
 
     def handle(self, **_kwargs: Any) -> None:
         from ...beat import run_beat
+
         run_beat()
