@@ -7,7 +7,7 @@ if sys.version_info < (3, 6):
 
 setup(
     name="django-robust",
-    version="0.4.0",
+    version="0.4.1",
     description="robust background queue for django",
     author="Victor Kotseruba",
     author_email="barbuzaster@gmail.com",

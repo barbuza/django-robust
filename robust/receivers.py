@@ -1,12 +1,23 @@
 from typing import Any, List
 
 from django.conf import settings
+from django.core.signals import request_finished, request_started
 from django.db import connection, models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Task, save_tag_run
-from .signals import task_started
+from .models import Task, TRANSACTION_CONTEXT, save_tag_run
+from .signals import task_failed, task_retry, task_started, task_succeed
+
+
+@receiver(signal=task_started)
+@receiver(signal=task_failed)
+@receiver(signal=task_retry)
+@receiver(signal=task_succeed)
+@receiver(signal=request_started)
+@receiver(signal=request_finished)
+def reset_transaction_schedule_key(**_kwargs: Any) -> None:
+    TRANSACTION_CONTEXT.clear()
 
 
 @receiver(signal=models.signals.pre_save, sender=Task)

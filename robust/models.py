@@ -2,6 +2,7 @@ import inspect
 import json
 import struct
 import sys
+import threading
 import traceback
 from datetime import datetime, timedelta
 from typing import (
@@ -230,6 +231,28 @@ class ArgsWrapper:
         return self.wrapper.delay_with_task_kwargs({"eta": self.eta}, *args, **kwargs)
 
 
+Schedule = Dict[str, List[Tuple[Task, dict, dict]]]
+
+
+class TransactionContext(threading.local):
+    _schedule: Optional[Schedule]
+
+    def __init__(self) -> None:
+        self._schedule = None
+
+    @property
+    def schedule(self) -> Schedule:
+        if self._schedule is None:
+            self._schedule = {}
+            if connection.in_atomic_block:
+                connection.on_commit(self.clear)
+        return self._schedule
+
+    def clear(self) -> None:
+        self._schedule = None
+
+
+TRANSACTION_CONTEXT = TransactionContext()
 TRANSACTION_SCHEDULE_KEY = "robust_scheduled_tasks"
 
 
@@ -292,14 +315,8 @@ class TaskWrapper:
 
         scheduled_tasks = None
         if connection.in_atomic_block:
-            if not hasattr(connection, TRANSACTION_SCHEDULE_KEY):
-                setattr(connection, TRANSACTION_SCHEDULE_KEY, {})
 
-                @connection.on_commit
-                def transaction_cleanup() -> None:
-                    delattr(connection, TRANSACTION_SCHEDULE_KEY)
-
-            schedule = getattr(connection, TRANSACTION_SCHEDULE_KEY)
+            schedule = TRANSACTION_CONTEXT.schedule
             schedule.setdefault(name, [])
             scheduled_tasks = schedule[name]
             for scheduled, payload, kw in scheduled_tasks:
