@@ -6,10 +6,11 @@ from django.db import connection, models
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Task, TRANSACTION_CONTEXT, save_tag_run
-from .signals import task_failed, task_retry, task_started, task_succeed
+from .models import TRANSACTION_CONTEXT, Task, save_tag_run
+from .signals import beat_tick, task_failed, task_retry, task_started, task_succeed
 
 
+@receiver(signal=beat_tick)
 @receiver(signal=task_started)
 @receiver(signal=task_failed)
 @receiver(signal=task_retry)

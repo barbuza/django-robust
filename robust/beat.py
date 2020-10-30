@@ -7,6 +7,7 @@ from typing import Any, List, Tuple, Type, cast
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils.module_loading import import_string
+from robust.signals import beat_tick
 from schedule import Scheduler
 
 
@@ -52,6 +53,7 @@ class BeatThread(threading.Thread):
     def run(self) -> None:
         try:
             while True:
+                beat_tick.send_robust(None)
                 self.scheduler.run_pending()
                 time.sleep(1)
                 if self.terminate:
