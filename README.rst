@@ -105,8 +105,8 @@ settings
 
     ROBUST_FAILED_TASK_EXPIRE = datetime.timedelta(weeks=1) # failed tasks cleanup period. Default: 1 week ago
 
-.. |Build Status| image:: https://travis-ci.org/barbuza/django-robust.svg?branch=master
-   :target: https://travis-ci.org/barbuza/django-robust
+.. |Build Status| image:: https://github.com/barbuza/django-robust/workflows/test/badge.svg?branch=master
+   :target: https://github.com/barbuza/django-robust/actions?query=workflow%3Atest+branch%3Amaster
 .. |Coverage Status| image:: https://coveralls.io/repos/github/barbuza/django-robust/badge.svg?branch=master
    :target: https://coveralls.io/github/barbuza/django-robust?branch=master
 .. |PyPI Version| image:: https://badge.fury.io/py/django-robust.svg
