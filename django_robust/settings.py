@@ -55,6 +55,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
         "NAME": "robust",
         "USER": "robust",
+        "PASSWORD": "robust",
     }
 }
 

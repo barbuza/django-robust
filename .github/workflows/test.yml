@@ -15,6 +15,7 @@ jobs:
         env:
           POSTGRES_USER: robust
           POSTGRES_DB: robust
+          POSTGRES_PASSWORD: robust
         options: >-
           --health-cmd "pg_isready -U robust"
           --health-interval 10s
