@@ -52,6 +52,7 @@ jobs:
       - name: Test
         run: |
           coverage run --append manage.py test
+          coverage combine
           coverage report -m
 
       - name: Coveralls
