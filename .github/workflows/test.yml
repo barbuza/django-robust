@@ -52,4 +52,4 @@ jobs:
       - name: Test
         run: |
           coverage run --source=robust manage.py test
-          [[ "${{ matrix.python-version }}" == "3.9" ]] && [[ "${{ matrix.django-version }}" == "~=3.1.0" ]] && coveralls
+          [[ "${{ matrix.python-version }}" == "3.9" ]] && [[ "${{ matrix.django-version }}" == "~=3.1.0" ]] && coveralls || true
