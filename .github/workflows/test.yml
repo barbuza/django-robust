@@ -1,0 +1,63 @@
+name: test
+on: [ push, pull_request ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [ 3.6, 3.7, 3.8, 3.9 ]
+        django-version: [ '~=2.2.0', '~=3.1.0' ]
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: robust
+          POSTGRES_DB: robust
+          POSTGRES_PASSWORD: robust
+        options: >-
+          --health-cmd "pg_isready -U robust"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "django${{ matrix.django-version }}" colorlog coverage coveralls
+          python setup.py develop
+
+      - name: Test
+        run: |
+          coverage run --append manage.py test
+          coverage combine
+          coverage report -m
+
+      - name: Coveralls
+        if: ${{ matrix.python-version == '3.9' && matrix.django-version == '~=3.1.0' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          coveralls
