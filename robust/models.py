@@ -19,7 +19,8 @@ from typing import (
 )
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField, JSONField
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import JSONField
 
 # noinspection PyProtectedMember
 from django.core.cache import caches
