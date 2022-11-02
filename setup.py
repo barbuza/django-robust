@@ -2,21 +2,18 @@ import sys
 
 from setuptools import find_packages, setup
 
-if sys.version_info < (3, 6):
-    raise ImportError("django-robust 0.4 only supports python3.6 and newer")
-
 setup(
     name="django-robust",
-    version="0.4.1",
+    version="0.5.0",
     description="robust background queue for django",
     author="Victor Kotseruba",
     author_email="barbuzaster@gmail.com",
     url="https://github.com/barbuza/django-robust",
     include_package_data=True,
     packages=find_packages(exclude=["django_robust", "dummy"]),
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     install_requires=[
-        "django >= 2.0",
+        "django >= 3.0, < 5.0",
         "psycopg2",
         "django-redis",
         "redis",

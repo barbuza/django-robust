@@ -19,7 +19,7 @@ from typing import (
 )
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField, JSONField
+from django.contrib.postgres.fields import ArrayField
 
 # noinspection PyProtectedMember
 from django.core.cache import caches
@@ -98,7 +98,7 @@ class Task(models.Model):
     retries = models.IntegerField(null=True)
     name = models.TextField()
     tags = ArrayField(models.TextField())
-    payload = JSONField()
+    payload = models.JSONField()
     traceback = models.TextField(null=True)
     eta = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

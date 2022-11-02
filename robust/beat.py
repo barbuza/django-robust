@@ -20,8 +20,8 @@ def schedule_task(task: str, tags: List[str]) -> None:
 def get_scheduler() -> Scheduler:
     from .models import TaskWrapper
 
-    schedule_list: List[Tuple[timedelta, str]] = getattr(
-        settings, "ROBUST_SCHEDULE", None
+    schedule_list: List[Tuple[timedelta, str]] = cast(
+        Any, getattr(settings, "ROBUST_SCHEDULE", None)
     )
     if not schedule_list:
         raise RuntimeError("can't run beat with empty schedule")

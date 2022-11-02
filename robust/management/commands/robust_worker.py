@@ -7,7 +7,6 @@ from django.utils.module_loading import import_string
 
 
 class Command(BaseCommand):
-    requires_system_checks = True
     can_import_settings = True
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
