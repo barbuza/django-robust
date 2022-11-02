@@ -687,7 +687,7 @@ def every_2_seconds() -> None:
 
 @override_settings(
     ROBUST_SCHEDULE=[
-        (timedelta(seconds=1), import_path(every_second)),
+        (lambda x: x.every().second, import_path(every_second)),
         (timedelta(seconds=2), import_path(every_2_seconds)),
     ]
 )
