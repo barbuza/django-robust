@@ -62,7 +62,7 @@ jobs:
           github-token: ${{ secrets.github_token }}
           flag-name: python ${{ matrix.python-version }}, django ${{ matrix.django-version }}
           parallel: true
-
+          path-to-lcov: ./lcov.info
   report:
     needs: test
     runs-on: ubuntu-latest
