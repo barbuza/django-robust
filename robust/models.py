@@ -20,8 +20,6 @@ from typing import (
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-
-# noinspection PyProtectedMember
 from django.core.cache import caches
 from django.db import connection, models
 from django.utils import timezone
@@ -35,12 +33,10 @@ from .exceptions import TaskTransactionError
 
 class TaskQuerySet(models.QuerySet):
     def with_fails(self) -> "TaskQuerySet":
-        qs = self.filter(events__status__in=Task.TROUBLED_STATUSES).distinct()
-        return cast(TaskQuerySet, qs)
+        return self.filter(events__status__in=Task.TROUBLED_STATUSES).distinct()
 
     def without_fails(self) -> "TaskQuerySet":
-        qs = self.exclude(events__status__in=Task.TROUBLED_STATUSES).distinct()
-        return cast(TaskQuerySet, qs)
+        return self.exclude(events__status__in=Task.TROUBLED_STATUSES).distinct()
 
     def next(self, limit: int = 1, eta: Optional[datetime] = None) -> List["Task"]:
         if not connection.in_atomic_block:
@@ -60,7 +56,7 @@ class TaskQuerySet(models.QuerySet):
             .order_by("pk")
         )
 
-        tasks = list(qs[:limit])
+        tasks = cast(list[Task], list(qs[:limit]))
 
         allowed_tasks: List[Task] = []
 
@@ -95,6 +91,7 @@ class Task(models.Model):
     status = models.PositiveSmallIntegerField(
         choices=STATUS_CHOICES, db_index=True, default=PENDING
     )
+    get_status_display: Callable[[], str]
     retries = models.IntegerField(null=True)
     name = models.TextField()
     tags = ArrayField(models.TextField())
@@ -103,6 +100,7 @@ class Task(models.Model):
     eta = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    events: models.QuerySet["TaskEvent"]
 
     objects = TaskQuerySet.as_manager()
 
@@ -183,6 +181,8 @@ class TaskEvent(models.Model):
     status = models.PositiveSmallIntegerField(choices=Task.STATUS_CHOICES)
     eta = models.DateTimeField(blank=True, null=True)
     traceback = models.TextField(null=True)
+
+    get_status_display: Callable[[], str]
 
 
 def get_kwargs_processor_cls() -> Type["PayloadProcessor"]:
@@ -315,7 +315,6 @@ class TaskWrapper:
 
         scheduled_tasks = None
         if connection.in_atomic_block:
-
             schedule = TRANSACTION_CONTEXT.schedule
             schedule.setdefault(name, [])
             scheduled_tasks = schedule[name]
@@ -397,7 +396,9 @@ def calc_tags_eta(tags: List[str]) -> Dict[str, datetime]:
     etas: Dict[str, datetime] = {}
 
     for tag, (count, interval) in configured_tags.items():
-        first_run_ts_bytes = client.lindex(tag_cache_key(tag), count - 1)
+        first_run_ts_bytes = cast(
+            Optional[bytes], client.lindex(tag_cache_key(tag), count - 1)
+        )
         if first_run_ts_bytes is None:
             continue
 

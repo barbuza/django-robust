@@ -19,12 +19,12 @@ from ..models import calc_tags_eta, save_tag_run
     }
 )
 class TagsTestCase(SimpleTestCase):
-    client: Redis
+    redis: Redis
 
     def setUp(self) -> None:
         cache: RedisCache = caches["robust"]
-        self.client = cast(Redis, cache.client.get_client())
-        self.client.flushall()
+        self.redis = cache.client.get_client()
+        self.redis.flushall()
 
     @override_settings(ROBUST_RATE_LIMIT=None)
     def test_absent(self) -> None:
@@ -32,7 +32,7 @@ class TagsTestCase(SimpleTestCase):
 
     def test_save_unknown(self) -> None:
         save_tag_run("unknown", timezone.now().replace(microsecond=0))
-        self.assertListEqual(self.client.keys("*"), [])
+        self.assertListEqual(self.redis.keys("*"), [])
 
     def test_calc(self) -> None:
         start = timezone.now().replace(microsecond=0)

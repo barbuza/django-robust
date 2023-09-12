@@ -7,8 +7,9 @@ from typing import Any, List, Tuple, Type, cast
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils.module_loading import import_string
-from robust.signals import beat_tick
 from schedule import Scheduler
+
+from .signals import beat_tick
 
 
 def schedule_task(task: str, tags: List[str]) -> None:

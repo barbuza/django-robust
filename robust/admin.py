@@ -1,15 +1,13 @@
 from typing import List, Optional, Tuple, cast
 
 from django.contrib import admin, messages
+from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.safestring import mark_safe
-from django_object_actions import (
-    BaseDjangoObjectActions,
-    takes_instance_or_queryset,
-)
+from django_object_actions import BaseDjangoObjectActions, takes_instance_or_queryset
 from pygments import highlight
 from pygments.formatters.html import HtmlFormatter
-from pygments.lexers.python import Python3TracebackLexer
+from pygments.lexers import get_lexer_by_name
 
 from .models import Task, TaskQuerySet, unwrap_payload
 
@@ -21,14 +19,15 @@ class TaskEventsFilter(admin.SimpleListFilter):
     title = parameter_name = "events"
 
     def lookups(
-        self, request: HttpRequest, model_admin: "TaskAdmin"
+        self, request: HttpRequest, model_admin: admin.ModelAdmin
     ) -> List[Tuple[str, str]]:
         return [
             (self.SUCCEED, "Succeed"),
             (self.TROUBLED, "Troubled"),
         ]
 
-    def queryset(self, request: HttpRequest, queryset: TaskQuerySet) -> TaskQuerySet:
+    def queryset(self, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        queryset = cast(TaskQuerySet, queryset)
         if self.value() == self.TROUBLED:
             queryset = queryset.with_fails()
         elif self.value() == self.SUCCEED:
@@ -63,8 +62,8 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
     cast(ModelAdminMethodField, payload_unwraped).short_description = "payload"
     cast(ModelAdminMethodField, payload_unwraped).admin_order_field = "payload"
 
-    def get_actions(self, request: HttpRequest) -> List[str]:
-        actions = super(TaskAdmin, self).get_actions(request)
+    def get_actions(self, request: HttpRequest) -> dict:
+        actions = super().get_actions(request)
         if "delete_selected" in actions:
             del actions["delete_selected"]
         return actions
@@ -79,7 +78,7 @@ class TaskAdmin(BaseDjangoObjectActions, admin.ModelAdmin):
 
     def traceback_code(self, task: Task) -> str:
         formatter = HtmlFormatter()
-        lexer = Python3TracebackLexer()
+        lexer = get_lexer_by_name("py3tb")
         style = formatter.get_style_defs(".highlight")
         return mark_safe(
             "<style>{}</style><br/>{}".format(

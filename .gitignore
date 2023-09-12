@@ -14,3 +14,4 @@ __pycache__
 /.coverage.*
 /.mypy_cache
 /.env
+/pyrightconfig.json

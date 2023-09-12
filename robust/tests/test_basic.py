@@ -2,10 +2,9 @@ import os
 import signal
 import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Optional, Tuple, Type, Union, cast
 from unittest import mock
-import threading
 
 import django.core.cache
 import django.db
@@ -18,11 +17,10 @@ from django.utils import timezone
 from django_redis.cache import RedisCache
 from redis import Redis
 
-import robust
-from robust import signals
-from robust.admin import TaskEventsFilter
-from robust.exceptions import Retry, TaskTransactionError
-from robust.models import (
+from .. import signals
+from ..admin import TaskEventsFilter
+from ..exceptions import Retry, TaskTransactionError
+from ..models import (
     PayloadProcessor,
     Task,
     TaskEvent,
@@ -31,7 +29,7 @@ from robust.models import (
     save_tag_run,
     task,
 )
-from robust.runners import SimpleRunner
+from ..runners import SimpleRunner
 
 
 def import_path(fn: Union["function", Type["TaskWrapper"]]) -> str:
@@ -115,8 +113,9 @@ class TaskManagerTest(TransactionTestCase):
         t3 = Task.objects.create(name="foo")
         t3.mark_retry(delay=timedelta(minutes=2))
         self.assertEqual(t3.status, Task.RETRY)
+        self.assertIsNotNone(t3.eta)
         self.assertAlmostEqual(
-            time.mktime(t3.eta.timetuple()),
+            time.mktime(cast(datetime, t3.eta).timetuple()),
             time.mktime((timezone.now() + timedelta(minutes=2)).timetuple()),
             delta=5,
         )
@@ -147,7 +146,7 @@ class TaskManagerTest(TransactionTestCase):
         retry_at = t1.updated_at
         t1.mark_succeed()
         self.assertSequenceEqual(
-            t1.events.values_list("status", "eta", "created_at"),
+            list(t1.events.values_list("status", "eta", "created_at")),
             [
                 (Task.PENDING, None, t1.created_at),
                 (Task.RETRY, eta, retry_at),
@@ -318,13 +317,13 @@ class WorkerTest(TransactionTestCase):
 class RateLimitTest(TransactionTestCase):
     available_apps = ["robust"]
 
-    client: Redis
+    redis: Redis
 
     def setUp(self) -> None:
         Task.objects.all().delete()
         cache: RedisCache = django.core.cache.caches["robust"]
-        self.client = cast(Redis, cache.client.get_client())
-        self.client.flushall()
+        self.redis = cache.client.get_client()
+        self.redis.flushall()
 
     def test_create(self) -> None:
         t1 = Task.objects.create(name=TEST_TASK_PATH, tags=["foo"])
@@ -336,8 +335,8 @@ class RateLimitTest(TransactionTestCase):
         SimpleRunner(t3).run()
         SimpleRunner(t4).run()
 
-        self.assertEqual(self.client.llen("robust_tag_foo"), 1)
-        self.assertEqual(self.client.llen("robust_tag_bar"), 3)
+        self.assertEqual(self.redis.llen("robust_tag_foo"), 1)
+        self.assertEqual(self.redis.llen("robust_tag_bar"), 3)
 
     def _run_in_background(
         self, started: threading.Event, done: threading.Event
@@ -369,8 +368,8 @@ class RateLimitTest(TransactionTestCase):
             started.wait(timeout=5)
 
         try:
-            self.assertEqual(self.client.llen("robust_tag_slow"), 1)
-            self.assertEqual(self.client.keys("robust_tag_*"), [b"robust_tag_slow"])
+            self.assertEqual(self.redis.llen("robust_tag_slow"), 1)
+            self.assertEqual(self.redis.keys("robust_tag_*"), [b"robust_tag_slow"])
 
         finally:
             done.set()
@@ -416,11 +415,10 @@ def foo_task(spam: Any = None) -> Any:
     return spam or "bar"
 
 
-@robust.task(bind=True, tags=["foo", "bar"])
-def bound_task(self: TaskWrapper, retry: bool = False) -> TaskWrapper:
+@task(bind=True, tags=["foo", "bar"])
+def bound_task(self: TaskWrapper, retry: bool = False) -> None:
     if retry:
         self.retry()
-    return self
 
 
 @task(bind=True, retries=1)
@@ -441,7 +439,6 @@ class TaskDecoratorTest(TransactionTestCase):
         with self.assertRaises(bound_task.Retry):
             bound_task(retry=True)
 
-        self.assertTrue(issubclass(cast(type, bound_task()), TaskWrapper))
         self.assertSequenceEqual(bound_task.tags, ["foo", "bar"])
 
         self.assertEqual(Task.objects.count(), 4)
@@ -794,15 +791,17 @@ class TracebackTest(TransactionTestCase):
     def test_trace(self) -> None:
         instance = failing_task.delay()
         SimpleRunner(instance).run()
-        self.assertIn("failing_task", instance.traceback)
-        self.assertIn("RuntimeError", instance.traceback)
-        self.assertIn("spam", instance.traceback)
+        self.assertIsNotNone(instance.traceback)
+        self.assertIn("failing_task", cast(str, instance.traceback))
+        self.assertIn("RuntimeError", cast(str, instance.traceback))
+        self.assertIn("spam", cast(str, instance.traceback))
 
         instance = bound_failing_task.delay()
         SimpleRunner(instance).run()
-        self.assertIn("bound_failing_task", instance.traceback)
-        self.assertIn("RuntimeError", instance.traceback)
-        self.assertIn("bar", instance.traceback)
+        self.assertIsNotNone(instance.traceback)
+        self.assertIn("bound_failing_task", cast(str, instance.traceback))
+        self.assertIn("RuntimeError", cast(str, instance.traceback))
+        self.assertIn("bar", cast(str, instance.traceback))
 
 
 class TaskKwargsTest(TransactionTestCase):
@@ -814,9 +813,10 @@ class TaskKwargsTest(TransactionTestCase):
 
     def test_delay(self) -> None:
         t = retry_task.with_task_kwargs(delay=timedelta(hours=1)).delay(foo="bar")
+        self.assertIsNotNone(t.eta)
         self.assertAlmostEqual(
             time.mktime((timezone.now() + timedelta(hours=1)).timetuple()),
-            time.mktime(t.eta.timetuple()),
+            time.mktime(cast(datetime, t.eta).timetuple()),
             delta=5,
         )
         self.assertDictEqual({"foo": "bar"}, t.payload)

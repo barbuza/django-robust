@@ -1,10 +1,8 @@
-import sys
-
 from setuptools import find_packages, setup
 
 setup(
     name="django-robust",
-    version="0.5.0",
+    version="0.6.0",
     description="robust background queue for django",
     author="Victor Kotseruba",
     author_email="barbuzaster@gmail.com",
@@ -14,7 +12,7 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "django >= 3.0, < 5.0",
-        "psycopg2",
+        "psycopg2-binary",
         "django-redis",
         "redis",
         "django-object-actions",

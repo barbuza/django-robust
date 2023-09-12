@@ -1,6 +1,5 @@
 from django.dispatch import Signal
 
-
 task_started = Signal()
 task_succeed = Signal()
 task_failed = Signal()

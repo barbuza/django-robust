@@ -1,15 +1,14 @@
-import argparse
 import multiprocessing
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 from django.utils.module_loading import import_string
 
 
 class Command(BaseCommand):
     can_import_settings = True
 
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(self, parser: CommandParser) -> None:
         super(Command, self).add_arguments(parser)
         parser.add_argument(
             "--concurrency", default=multiprocessing.cpu_count(), type=int
